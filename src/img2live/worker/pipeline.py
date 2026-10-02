@@ -16,6 +16,7 @@ from .. import __version__
 from ..config import Settings
 from ..db import DB
 from ..engine.cleanup import clean_result
+from ..engine.matting import cutout_plain_background
 from ..engine.types import DecomposeResult
 from ..rig.compile import compile_puppet
 from ..rig.layers import build_layers
@@ -40,6 +41,10 @@ def process_job(job: dict, cfg: Settings, db: DB, engine, engine_info: dict) -> 
 
     src = Image.open(jdir / "source.png").convert("RGBA")
     rgba = np.asarray(src, dtype=np.uint8).copy()
+    matting = {"applied": False, "reason": "disabled"}
+    if cfg.cutout_bg:
+        rgba, matting = cutout_plain_background(rgba)
+        log.info("job %s background cut-out: %s", jid, matting)
 
     # ---- 1. decomposition (GPU)
     upd("decompose", 0.01, "loading / preparing")
@@ -58,7 +63,7 @@ def process_job(job: dict, cfg: Settings, db: DB, engine, engine_info: dict) -> 
         cl = clean_result(r)
         attempts.append({"seed": seed, "severe": list(cl.severe), "leaks": {k: round(v, 3) for k, v in cl.leaks.items()},
                          "decompose_s": round(r.timings.get("total_s", 0.0), 1)})
-        better = res is None or len(cl.severe) < len(cleanup.severe)
+        better = res is None or (len(cl.severe), cl.uncovered_frac) < (len(cleanup.severe), cleanup.uncovered_frac)
         if better:
             res, cleanup = r, cl
         if not cl.severe:
@@ -111,7 +116,7 @@ def process_job(job: dict, cfg: Settings, db: DB, engine, engine_info: dict) -> 
     job_report = {
         "version": __version__, "job": jid, "prompt": job.get("prompt", ""), "resolution": job["resolution"], "seed": job["seed"],
         "steps": cfg.steps, "engine": engine_info, "timings": timings, "rigSpec": spec.to_dict(),
-        "capability": report["capability"], "qa": report["qa"], "decompose": {"attempts": attempts, "cleanup": cleanup.to_dict()}, "rig_stats": report["stats"], "rig_notes": report["notes"],
+        "capability": report["capability"], "qa": report["qa"], "decompose": {"attempts": attempts, "cleanup": cleanup.to_dict(), "background_cutout": matting}, "rig_stats": report["stats"], "rig_notes": report["notes"],
         "layers": {"nonempty": sorted(nonempty), "head_hires": [h["tag"] for h in index.get("hires", [])],
                    "head_square": index.get("head_square")},
         "gate": (job.get("gate_json") or {}),

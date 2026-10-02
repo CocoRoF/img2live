@@ -45,6 +45,7 @@ class Settings:
     quant: str = field(default_factory=lambda: os.environ.get("IMG2LIVE_QUANT", "nf4"))
     group_offload: bool = field(default_factory=lambda: _b("IMG2LIVE_GROUP_OFFLOAD", True))
     steps: int = field(default_factory=lambda: _i("IMG2LIVE_STEPS", 30))
+    cutout_bg: bool = field(default_factory=lambda: _b("IMG2LIVE_CUTOUT_BG", True))  # make a flat background transparent first
     retries: int = field(default_factory=lambda: _i("IMG2LIVE_RETRIES", 1))  # extra decomposition attempts on a severe layer leak
 
     @property
