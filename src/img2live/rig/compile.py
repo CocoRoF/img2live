@@ -35,8 +35,9 @@ from .spec import RigSpec
 
 DRAW_ORDER = {
     "wings": 8, "back hair": 10, "tail": 14, "objects": 18, "footwear": 30, "legwear": 40, "bottomwear": 50,
-    "neck": 52, "topwear": 60, "handwear": 66, "neckwear": 68, "ears": 100, "face": 110, "eyewhite": 120,
-    "irides": 124, "eyelash": 128, "eyebrow": 132, "nose": 136, "mouth": 140, "mouth_overlay": 142,
+    "neck": 52, "topwear": 60, "handwear": 66, "neckwear": 68, "ears": 100, "face": 110,
+    # the model's "nose" layer is sometimes a second, face-sized skin layer: it must lie under the eyes
+    "nose": 116, "eyewhite": 120, "irides": 124, "eyelash": 128, "eyebrow": 132, "mouth": 140, "mouth_overlay": 142,
     "eyewear": 150, "earwear": 152, "front hair": 160, "headwear": 170,
 }
 FACE_PLANE = {"face", "eyewhite", "irides", "eyelash", "eyebrow", "nose", "mouth", "mouth_overlay", "eyewear"}

@@ -63,8 +63,8 @@ def process_job(job: dict, cfg: Settings, db: DB, engine, engine_info: dict) -> 
             res, cleanup = r, cl
         if not cl.severe:
             break
-        log.warning("job %s attempt %d: severe leak in %s%s", jid, attempt, cl.severe, " - retrying" if attempt < cfg.retries else "")
-        upd("decompose", 0.30, f"layer leak detected in {', '.join(cl.severe)}; retrying with another seed")
+        log.warning("job %s attempt %d: severe decomposition problem in %s%s", jid, attempt, cl.severe, " - retrying" if attempt < cfg.retries else "")
+        upd("decompose", 0.30, f"decomposition problem ({', '.join(cl.severe)}); retrying with another seed")
     timings["decompose_attempts"] = len(attempts)
     timings.update({f"decompose_{k}": round(v, 2) for k, v in res.timings.items()})
     nonempty = [t for t, a in res.layers.items() if t != "head" and (a[..., 3] > 16).any()]

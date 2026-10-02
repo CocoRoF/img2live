@@ -149,3 +149,36 @@ def test_cleanup_clips_background_leak_and_pipeline_retries(env):
     att = rep["decompose"]["attempts"]
     assert len(att) == 2 and att[0]["severe"] == ["legwear"] and att[1]["severe"] == []
     assert app.state.db.get(jid)["status"] == "done"
+
+
+def test_cleanup_fills_a_layer_the_model_left_empty_from_the_source(env):
+    """Real failure: the model returned no footwear at all, so the shoes vanished from the character."""
+    from img2live.engine.cleanup import clean_result
+
+    res = FakeDecomposer().run(np.zeros((10, 10, 4), np.uint8))
+    shoes = int((res.layers["footwear"][..., 3] > 16).sum())
+    assert shoes > 0
+    res.layers["footwear"] = np.zeros_like(res.layers["footwear"])  # the model dropped them
+    rep = clean_result(res)
+    assert rep.silhouette_ok and rep.uncovered_frac > 0.01
+    assert set(rep.filled) == {"footwear"}  # below the legs -> footwear, not legwear
+    filled = res.layers["footwear"]
+    assert int((filled[..., 3] > 16).sum()) >= 0.8 * shoes
+    # the filled pixels carry the source colours (the shoes are dark in the synthetic character)
+    px = filled[filled[..., 3] > 200][:, :3].astype(int)
+    assert px.mean() < 90
+
+
+def test_cleanup_leaves_a_complete_decomposition_alone(env):
+    from img2live.engine.cleanup import clean_result
+
+    res = FakeDecomposer().run(np.zeros((10, 10, 4), np.uint8))
+    rep = clean_result(res)
+    assert rep.filled == {} and rep.uncovered_frac < 0.01 and rep.severe == []
+
+
+def test_nose_is_drawn_under_the_eyes():
+    """The model's 'nose' layer can be a second face-sized skin layer; on top of the eyes it hides them."""
+    from img2live.rig.compile import DRAW_ORDER
+
+    assert DRAW_ORDER["face"] < DRAW_ORDER["nose"] < DRAW_ORDER["eyewhite"] < DRAW_ORDER["irides"] < DRAW_ORDER["eyebrow"]

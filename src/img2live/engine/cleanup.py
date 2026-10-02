@@ -8,7 +8,9 @@ part lies *behind* a visible part, a correct layer never leaves the character's 
 2. clip every layer to the silhouette (dilated by a margin),
 3. drop alpha specks and tiny islands,
 4. report layers that were mostly outside the silhouette; the pipeline retries with another seed if too much
-   of the character's area was lost to leaks.
+   of the character's area was lost to leaks,
+5. give visible silhouette pixels that *no* layer covers (the model sometimes returns an empty layer, e.g. no
+   shoes) to the neighbouring layer, using the source colours - the visible part of a character is known exactly.
 """
 from __future__ import annotations
 
@@ -28,28 +30,34 @@ class CleanupReport:
     leaks: Dict[str, float] = field(default_factory=dict)       # tag -> share of the layer's area outside the silhouette
     severe: List[str] = field(default_factory=list)             # tags with a severe leak
     removed_specks: Dict[str, int] = field(default_factory=dict)
+    uncovered_frac: float = 0.0                                  # share of the silhouette no layer covered
+    filled: Dict[str, int] = field(default_factory=dict)         # tag -> pixels taken from the source image
     note: str = ""
 
     def to_dict(self) -> dict:
         return {"silhouette_ok": self.silhouette_ok, "silhouette_frac": round(self.silhouette_frac, 4),
                 "leaks": {k: round(v, 3) for k, v in self.leaks.items()}, "severe": self.severe,
-                "removed_specks": self.removed_specks, "note": self.note}
+                "removed_specks": self.removed_specks, "uncovered_frac": round(self.uncovered_frac, 4),
+                "filled": self.filled, "note": self.note}
 
 
-def silhouette(fullpage_rgba: np.ndarray, source_box: Optional[Tuple[int, int, int, int]] = None) -> Tuple[np.ndarray, bool]:
-    """Foreground mask on the canvas grid (bool HxW) and whether the estimate is trustworthy.
+def _estimate(fullpage_rgba: np.ndarray, source_box: Optional[Tuple[int, int, int, int]] = None
+              ) -> Tuple[np.ndarray, np.ndarray, bool]:
+    """(silhouette, solid, trusted) on the canvas grid.
 
-    ``source_box`` is where the real source image sits inside the (transparently padded) square canvas; only that
-    region is analysed so the padding is not mistaken for transparency.
+    ``silhouette`` is the foreground with enclosed pockets filled in (it only has to *contain* every layer);
+    ``solid`` is the foreground without that hole filling - pixels that really differ from the background - and is
+    what may be handed to a layer.  ``source_box`` is where the real source image sits inside the (transparently
+    padded) square canvas; only that region is analysed so the padding is not mistaken for transparency.
     """
     H, W = fullpage_rgba.shape[:2]
     x0, y0, x1, y1 = source_box if source_box else (0, 0, W, H)
     x0, y0, x1, y1 = max(0, x0), max(0, y0), min(W, x1), min(H, y1)
     crop = fullpage_rgba[y0:y1, x0:x1]
     a = crop[..., 3]
-    m_crop: np.ndarray
     if (a < 250).mean() > 0.05:  # the source itself carries transparency (e.g. a cut-out): use its alpha
         m_crop = a > 20
+        solid_crop = m_crop
         trusted = bool(0.01 < m_crop.mean() < 0.8)
     else:
         rgb = crop[..., :3].astype(np.float32)
@@ -60,8 +68,8 @@ def silhouette(fullpage_rgba: np.ndarray, source_box: Optional[Tuple[int, int, i
         spread = float(np.median(np.linalg.norm(border - bg, axis=1)))
         dist = np.linalg.norm(rgb - bg, axis=2)
         thr = max(28.0, 4.0 * spread + 14.0)
-        m = (dist > thr).astype(np.uint8)
-        m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+        solid_crop = dist > thr
+        m = cv2.morphologyEx(solid_crop.astype(np.uint8), cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
         # fill holes: everything not reachable from the border
         ff = (1 - m).astype(np.uint8)
         fm = np.zeros((h + 2, w + 2), np.uint8)
@@ -72,7 +80,15 @@ def silhouette(fullpage_rgba: np.ndarray, source_box: Optional[Tuple[int, int, i
         trusted = bool(spread < 18.0 and 0.01 < m_crop.mean() < 0.75)
     out = np.zeros((H, W), bool)
     out[y0:y1, x0:x1] = m_crop
-    return out, trusted
+    solid = np.zeros((H, W), bool)
+    solid[y0:y1, x0:x1] = solid_crop
+    return out, solid, trusted
+
+
+def silhouette(fullpage_rgba: np.ndarray, source_box: Optional[Tuple[int, int, int, int]] = None) -> Tuple[np.ndarray, bool]:
+    """Foreground mask on the canvas grid (bool HxW) and whether the estimate is trustworthy."""
+    sil, _, trusted = _estimate(fullpage_rgba, source_box)
+    return sil, trusted
 
 
 def _drop_specks(rgba: np.ndarray, min_area: int, hard: int = 40) -> Tuple[np.ndarray, int]:
@@ -115,13 +131,59 @@ def _clean_one(rgba: np.ndarray, sil: Optional[np.ndarray], rep: CleanupReport, 
     return cur
 
 
+UNCOVERED_SEVERE = 0.08   # more than this share of the silhouette without any layer: the decomposition failed
+
+
+def _fill_uncovered(res, sil: np.ndarray, solid: np.ndarray, rep: CleanupReport, min_area_frac: float = 0.0007) -> None:
+    """Assign foreground pixels that no layer covers to a layer, with colours from the source image.
+
+    Only ``solid`` pixels qualify: background pockets enclosed by the character (between the legs, inside a hair loop)
+    are inside the silhouette but are not part of any layer."""
+    H, W = sil.shape
+    tags = [t for t in res.layers if t != "head"]
+    covered = np.zeros((H, W), bool)
+    for t in tags:
+        covered |= res.layers[t][..., 3] >= 100
+    unc = (sil & solid & ~covered).astype(np.uint8)
+    unc = cv2.morphologyEx(unc, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))  # edge halos are not missing parts
+    rep.uncovered_frac = float(unc.sum()) / max(1, int((sil & solid).sum()))
+    if rep.uncovered_frac == 0 or res.fullpage is None:
+        return
+    n, lab, stats, cent = cv2.connectedComponentsWithStats(unc, connectivity=8)
+    min_area = max(60, int(min_area_frac * H * W))
+    opaque = {t: res.layers[t][..., 3] >= 100 for t in tags}
+    leg = opaque.get("legwear")
+    leg_rows = np.where(leg.any(axis=1))[0] if leg is not None and leg.any() else None
+    footwear_missing = "footwear" in res.layers and not opaque["footwear"].any()  # judged before anything is filled
+    for i in range(1, n):
+        if stats[i, cv2.CC_STAT_AREA] < min_area:
+            continue
+        comp = lab == i
+        ring = (cv2.dilate(comp.astype(np.uint8), np.ones((9, 9), np.uint8)) > 0) & ~comp
+        votes = {t: int(m[ring].sum()) for t, m in opaque.items() if m[ring].any()}
+        target = max(votes, key=votes.get) if votes else "objects"
+        if (target in ("legwear", "footwear") and footwear_missing
+                and leg_rows is not None and cent[i][1] >= leg_rows[0] + 0.6 * (leg_rows[-1] - leg_rows[0])):
+            target = "footwear"  # what hangs below the legs and was left out is the footwear
+        grow = (cv2.dilate(comp.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0) & sil & solid & ~covered
+        layer = res.layers[target].copy()
+        layer[grow, :3] = res.fullpage[grow, :3]
+        layer[grow, 3] = 255
+        res.layers[target] = layer
+        opaque[target] = layer[..., 3] >= 100
+        rep.filled[target] = rep.filled.get(target, 0) + int(grow.sum())
+    if rep.uncovered_frac > UNCOVERED_SEVERE and "uncovered" not in rep.severe:
+        rep.severe.append("uncovered")
+
+
 def clean_result(res, margin: int = 3, min_island_frac: float = 0.0015) -> CleanupReport:
     """Clean a DecomposeResult in place (canvas layers and the hi-res head layers) and return the verdict."""
     rep = CleanupReport()
     sil = None
     if res.fullpage is not None and res.fullpage[..., 3].any():
-        sil, rep.silhouette_ok = silhouette(res.fullpage, res.source_box)
+        sil, solid, rep.silhouette_ok = _estimate(res.fullpage, res.source_box)
         rep.silhouette_frac = float(sil.mean())
+        sil_raw = sil
         if rep.silhouette_ok:
             k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * margin + 1, 2 * margin + 1))
             sil = cv2.dilate(sil.astype(np.uint8), k) > 0
@@ -131,6 +193,8 @@ def clean_result(res, margin: int = 3, min_island_frac: float = 0.0015) -> Clean
         if tag == "head":
             continue
         res.layers[tag] = _clean_one(res.layers[tag], sil, rep, tag, min_island_frac)
+    if sil is not None:
+        _fill_uncovered(res, sil_raw, solid, rep)
     if res.head_hires and res.head_square:
         x0, y0, side = res.head_square
         n = next(iter(res.head_hires.values())).shape[0]
