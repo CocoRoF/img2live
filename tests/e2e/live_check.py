@@ -18,7 +18,8 @@ TABS = ["live", "sheet", "layers", "compare", "report", "files"]
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", required=True)
-    ap.add_argument("--image", required=True)
+    ap.add_argument("--image", default="")
+    ap.add_argument("--job", default="", help="existing job URL or id: skip the upload and only inspect the result")
     ap.add_argument("--prompt", default="차분하게, 머리카락은 조금 흔들리게")
     ap.add_argument("--out", default="live_shots")
     ap.add_argument("--chrome", default="")
@@ -39,18 +40,22 @@ def main() -> int:
         page.on("requestfailed", lambda r: problems.append(f"request failed: {r.url}"))
         page.on("response", lambda r: problems.append(f"HTTP {r.status}: {r.url}") if r.status >= 400 and "/api/jobs" not in r.url else None)
 
-        page.goto(a.base, wait_until="networkidle")
-        page.screenshot(path=str(out / "01_index.png"), full_page=True)
-        page.set_input_files("#file", a.image)
-        page.fill("#prompt", a.prompt)
-        if a.access_code:
-            page.fill("#code", a.access_code)
-        page.check("#consent")
-        page.wait_for_selector("#go:not([disabled])", timeout=120000)
-        page.screenshot(path=str(out / "02_index_filled.png"), full_page=True)
-        page.click("#go")
-        page.wait_for_url("**/j/*", timeout=120000)
-        job_url = page.url
+        if a.job:
+            job_url = a.job if a.job.startswith("http") else f"{a.base.rstrip('/')}/j/{a.job}"
+            page.goto(job_url, wait_until="networkidle")
+        else:
+            page.goto(a.base, wait_until="networkidle")
+            page.screenshot(path=str(out / "01_index.png"), full_page=True)
+            page.set_input_files("#file", a.image)
+            page.fill("#prompt", a.prompt)
+            if a.access_code:
+                page.fill("#code", a.access_code)
+            page.check("#consent")
+            page.wait_for_selector("#go:not([disabled])", timeout=120000)
+            page.screenshot(path=str(out / "02_index_filled.png"), full_page=True)
+            page.click("#go")
+            page.wait_for_url("**/j/*", timeout=120000)
+            job_url = page.url
         print("job:", job_url, flush=True)
         t0 = time.time()
         last = ""

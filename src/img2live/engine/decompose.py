@@ -142,8 +142,10 @@ class Decomposer:
         # ---- head crop from the *source* image (not from the generated silhouette)
         head_sil = layers["head"]
         mask = (head_sil[..., 3] > 15).astype(np.uint8)
+        sx0, sy0 = int(round(pad_pos[0] / scale)), int(round(pad_pos[1] / scale))
+        sx1, sy1 = int(round((pad_pos[0] + src_w) / scale)), int(round((pad_pos[1] + src_h) / scale))
         result = DecomposeResult(canvas=resolution, source_size=(src_w, src_h), layers={}, fullpage=fullpage,
-                                 seed=seed, steps=steps)
+                                 source_box=(sx0, sy0, min(sx1, resolution), min(sy1, resolution)), seed=seed, steps=steps)
         if mask.sum() == 0:
             log.warning("no head found in the body pass; skipping the head pass")
             result.layers = layers

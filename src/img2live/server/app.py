@@ -123,7 +123,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     # ------------------------------------------------------------------ pages
     def page(name: str):
         async def _p():
-            return FileResponse(STATIC_DIR / name, media_type="text/html; charset=utf-8", headers={"Cache-Control": "no-cache"})
+            return FileResponse(STATIC_DIR / name, media_type="text/html; charset=utf-8", headers={"Cache-Control": "no-cache, no-transform"})
         return _p
 
     app.get("/", include_in_schema=False)(page("index.html"))
@@ -133,7 +133,19 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     async def job_page(job_id: str):
         if not JOB_ID_RE.match(job_id):
             raise HTTPException(404)
-        return FileResponse(STATIC_DIR / "job.html", media_type="text/html; charset=utf-8", headers={"Cache-Control": "no-cache"})
+        return FileResponse(STATIC_DIR / "job.html", media_type="text/html; charset=utf-8", headers={"Cache-Control": "no-cache, no-transform"})
+
+    FAVICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#5b4bdb"/>'
+               '<circle cx="32" cy="27" r="13" fill="#fff"/><circle cx="27" cy="26" r="2.6" fill="#5b4bdb"/><circle cx="37" cy="26" r="2.6" fill="#5b4bdb"/>'
+               '<path d="M16 54c2-10 9-14 16-14s14 4 16 14z" fill="#fff"/></svg>')
+
+    @app.get("/favicon.svg", include_in_schema=False)
+    async def favicon_svg():
+        return PlainTextResponse(FAVICON, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=86400"})
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon_ico():
+        return PlainTextResponse(FAVICON, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=86400"})
 
     @app.get("/robots.txt", include_in_schema=False)
     async def robots():
@@ -231,7 +243,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         job_id = new_job_id()
         jdir = cfg.jobs_dir / job_id
         jdir.mkdir(parents=True, exist_ok=False)
-        img.save(jdir / "source.png", optimize=True)
+        img.save(jdir / "source.png", compress_level=6)
         db.create(job_id, spec.raw_prompt, resolution, secrets.randbelow(2**31), ih, gate_dict, cfg.retention_hours)
         return {"id": job_id, "url": f"/j/{job_id}", "queue": db.active_count(), "rigSpec": spec.to_dict()}
 

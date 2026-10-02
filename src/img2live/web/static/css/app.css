@@ -94,3 +94,7 @@ dialog::backdrop { background: rgba(0,0,0,.55); }
 .sheet img { width: 100%; max-width: 1200px; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
 .prose h2 { margin-top: 1.6em; } .prose ul { padding-left: 1.3em; } .prose li { margin: .3em 0; }
+
+/* live viewer mount: the viewer is built for a container with a definite height */
+#viewerMount { height: min(88vh, 900px); min-height: 520px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+@media (max-width: 860px) { #viewerMount { height: auto; min-height: 0; } }

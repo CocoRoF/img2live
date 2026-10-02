@@ -125,3 +125,27 @@ def test_pages_and_info(env):
     assert client.get("/robots.txt").text.count("Disallow") >= 2
     p = client.post("/api/parse-prompt", data={"prompt": "no blink, 활발하게"}).json()
     assert p["blink"] is False and p["motion_intensity"] > 1
+
+
+def test_cleanup_clips_background_leak_and_pipeline_retries(env):
+    """The real failure mode: the plain background lands in one layer. It must be detected, clipped, and retried."""
+    from img2live.engine.cleanup import clean_result
+
+    res = FakeDecomposer(leak_attempts=1).run(np.zeros((10, 10, 4), np.uint8))
+    before = int((res.layers["legwear"][..., 3] > 16).sum())
+    assert before > 0.5 * res.canvas ** 2  # the leak covers most of the canvas
+    rep = clean_result(res)
+    assert rep.silhouette_ok and "legwear" in rep.severe
+    after = int((res.layers["legwear"][..., 3] > 16).sum())
+    assert after < 0.2 * before  # clipped to (at most) the dilated silhouette: nothing is left outside the character
+
+    cfg, app, client = env
+    cfg.retries = 1
+    jid = _submit(client).json()["id"]
+    job = app.state.db.claim_next()
+    eng = FakeDecomposer(leak_attempts=1)
+    process_job(job, cfg, app.state.db, eng, {"engine": "fake"})
+    rep = json.loads((cfg.jobs_dir / jid / "report.json").read_text())
+    att = rep["decompose"]["attempts"]
+    assert len(att) == 2 and att[0]["severe"] == ["legwear"] and att[1]["severe"] == []
+    assert app.state.db.get(jid)["status"] == "done"

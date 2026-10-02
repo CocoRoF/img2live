@@ -150,11 +150,28 @@ def synthetic_layers(canvas: int = 1280) -> Dict[str, np.ndarray]:
     return L
 
 
-class FakeDecomposer:
-    """Drop-in for :class:`Decomposer` that ignores the input image."""
+def _flatten(layers: Dict[str, np.ndarray], size: int) -> np.ndarray:
+    """Opaque composite of the synthetic layers on white (stands in for the padded source image)."""
+    order = ["back hair", "footwear", "legwear", "bottomwear", "topwear", "handwear", "neck", "ears", "face", "eyewhite",
+             "irides", "eyelash", "eyebrow", "nose", "mouth", "eyewear", "front hair"]
+    acc = Image.new("RGBA", (size, size), (255, 255, 255, 255))
+    for t in order:
+        if t in layers:
+            acc.alpha_composite(Image.fromarray(layers[t], "RGBA"))
+    return np.asarray(acc, dtype=np.uint8).copy()
 
-    def __init__(self, *a, **k):
+
+class FakeDecomposer:
+    """Drop-in for :class:`Decomposer` that ignores the input image.
+
+    ``leak_attempts``: the first N runs simulate the real failure mode (the plain background dumped into the
+    ``legwear`` layer) so the clean-up / retry path can be tested.
+    """
+
+    def __init__(self, *a, leak_attempts: int = 0, **k):
         self.loaded = False
+        self.leak_attempts = leak_attempts
+        self.runs = 0
 
     def load(self) -> None:
         self.loaded = True
@@ -167,6 +184,14 @@ class FakeDecomposer:
             progress("body", 0.55 * (i + 1) / 10, f"synthetic body pass {i + 1}/10")
             time.sleep(0.05)
         layers = synthetic_layers(resolution)
+        fullpage = _flatten(layers, resolution)
+        if self.runs < self.leak_attempts:
+            leak = np.zeros_like(layers["legwear"])
+            leak[...] = (170, 170, 170, 255)
+            keep = layers["legwear"][..., 3] > 0
+            leak[keep] = layers["legwear"][keep]
+            layers["legwear"] = leak
+        self.runs += 1
         sq = (520.0 * resolution / 1280, 60.0 * resolution / 1280, 240.0 * resolution / 1280)
         k = resolution / sq[2]  # hi-res px per canvas px
         hires = _draw_head(resolution, k, sq[0], sq[1])
@@ -174,7 +199,6 @@ class FakeDecomposer:
             progress("head", 0.55 + 0.45 * (i + 1) / 10, f"synthetic head pass {i + 1}/10")
             time.sleep(0.05)
         h, w = rgba.shape[:2]
-        full = np.zeros((resolution, resolution, 4), np.uint8)
         return DecomposeResult(canvas=resolution, source_size=(w, h), layers=layers, head_hires=hires, head_square=sq,
-                               fullpage=full, seed=seed, steps=steps,
+                               fullpage=fullpage, source_box=(0, 0, resolution, resolution), seed=seed, steps=steps,
                                timings={"body_s": 0.5, "head_s": 0.5, "total_s": time.time() - t0})

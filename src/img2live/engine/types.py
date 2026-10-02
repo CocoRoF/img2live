@@ -27,6 +27,7 @@ class DecomposeResult:
     head_hires: Dict[str, np.ndarray] = field(default_factory=dict)  # tag -> res x res x 4 uint8, native head-pass output
     head_square: Optional[Tuple[float, float, float]] = None        # (x0, y0, side) of that square in canvas px
     fullpage: Optional[np.ndarray] = None         # the padded input at canvas size (RGBA)
+    source_box: Optional[Tuple[int, int, int, int]] = None  # (x0, y0, x1, y1) of the real source inside the padded canvas
     seed: int = 0
     steps: int = 30
     timings: Dict[str, float] = field(default_factory=dict)

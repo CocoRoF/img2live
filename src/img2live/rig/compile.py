@@ -529,7 +529,7 @@ def compile_puppet(layers: List[Layer], spec: Optional[RigSpec] = None, out_dir:
             if m["id"] == "mouth_overlay":
                 Image.fromarray(rig._extra_textures["mouth_overlay"], "RGBA").save(os.path.join(out_dir, m["texture"]))
             else:
-                Image.fromarray(by_name[m["id"]].rgba, "RGBA").save(os.path.join(out_dir, m["texture"]), optimize=True)
+                Image.fromarray(by_name[m["id"]].rgba, "RGBA").save(os.path.join(out_dir, m["texture"]), compress_level=6)
         with open(os.path.join(out_dir, "puppet.json"), "w", encoding="utf8") as f:
             json.dump(puppet, f, separators=(",", ":"))
         with open(os.path.join(out_dir, "report.json"), "w", encoding="utf8") as f:

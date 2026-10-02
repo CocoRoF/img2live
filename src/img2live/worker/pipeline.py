@@ -15,6 +15,7 @@ from PIL import Image
 from .. import __version__
 from ..config import Settings
 from ..db import DB
+from ..engine.cleanup import clean_result
 from ..engine.types import DecomposeResult
 from ..rig.compile import compile_puppet
 from ..rig.layers import build_layers
@@ -43,10 +44,28 @@ def process_job(job: dict, cfg: Settings, db: DB, engine, engine_info: dict) -> 
     # ---- 1. decomposition (GPU)
     upd("decompose", 0.01, "loading / preparing")
 
-    def cb(stage, frac, msg):
-        upd("decompose", 0.02 + 0.80 * frac, msg)
+    attempts = []
+    res: DecomposeResult = None  # type: ignore[assignment]
+    cleanup = None
+    for attempt in range(1 + max(0, cfg.retries)):
+        seed = (int(job["seed"]) + attempt * 7919) % (2**31)
+        base = 0.02 if attempt == 0 else 0.30
 
-    res: DecomposeResult = engine.run(rgba, resolution=int(job["resolution"]), steps=cfg.steps, seed=int(job["seed"]), progress=cb)
+        def cb(stage, frac, msg, _b=base, _a=attempt):
+            upd("decompose", _b + (0.82 - _b) * frac, (f"retry {_a}: " if _a else "") + msg)
+
+        r = engine.run(rgba, resolution=int(job["resolution"]), steps=cfg.steps, seed=seed, progress=cb)
+        cl = clean_result(r)
+        attempts.append({"seed": seed, "severe": list(cl.severe), "leaks": {k: round(v, 3) for k, v in cl.leaks.items()},
+                         "decompose_s": round(r.timings.get("total_s", 0.0), 1)})
+        better = res is None or len(cl.severe) < len(cleanup.severe)
+        if better:
+            res, cleanup = r, cl
+        if not cl.severe:
+            break
+        log.warning("job %s attempt %d: severe leak in %s%s", jid, attempt, cl.severe, " - retrying" if attempt < cfg.retries else "")
+        upd("decompose", 0.30, f"layer leak detected in {', '.join(cl.severe)}; retrying with another seed")
+    timings["decompose_attempts"] = len(attempts)
     timings.update({f"decompose_{k}": round(v, 2) for k, v in res.timings.items()})
     nonempty = [t for t, a in res.layers.items() if t != "head" and (a[..., 3] > 16).any()]
     if len(nonempty) < 4 or "face" not in nonempty:
@@ -58,8 +77,8 @@ def process_job(job: dict, cfg: Settings, db: DB, engine, engine_info: dict) -> 
     upd("layers", 0.83, "writing layers")
     index = exports.write_layers(res, jdir)
     if res.fullpage is not None and res.fullpage[..., 3].any():
-        Image.fromarray(res.fullpage, "RGBA").save(jdir / "source_canvas.png", optimize=True)
-    Image.fromarray(exports.composite(res.layers, res.canvas), "RGBA").save(jdir / "composite.png", optimize=True)
+        Image.fromarray(res.fullpage, "RGBA").save(jdir / "source_canvas.png", compress_level=6)
+    Image.fromarray(exports.composite(res.layers, res.canvas), "RGBA").save(jdir / "composite.png", compress_level=6)
     (jdir / "downloads").mkdir(exist_ok=True)
     try:
         exports.write_psd(res.layers, res.canvas, jdir / "downloads" / "layers.psd")
@@ -92,7 +111,7 @@ def process_job(job: dict, cfg: Settings, db: DB, engine, engine_info: dict) -> 
     job_report = {
         "version": __version__, "job": jid, "prompt": job.get("prompt", ""), "resolution": job["resolution"], "seed": job["seed"],
         "steps": cfg.steps, "engine": engine_info, "timings": timings, "rigSpec": spec.to_dict(),
-        "capability": report["capability"], "qa": report["qa"], "rig_stats": report["stats"], "rig_notes": report["notes"],
+        "capability": report["capability"], "qa": report["qa"], "decompose": {"attempts": attempts, "cleanup": cleanup.to_dict()}, "rig_stats": report["stats"], "rig_notes": report["notes"],
         "layers": {"nonempty": sorted(nonempty), "head_hires": [h["tag"] for h in index.get("hires", [])],
                    "head_square": index.get("head_square")},
         "gate": (job.get("gate_json") or {}),

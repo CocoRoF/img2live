@@ -50,7 +50,7 @@ def write_layers(res: DecomposeResult, out: Path) -> dict:
             continue
         x0, y0, x1, y1 = bb
         name = tag.replace(" ", "_")
-        Image.fromarray(rgba[y0:y1, x0:x1], "RGBA").save(out / "layers" / f"{name}.png", optimize=True)
+        Image.fromarray(rgba[y0:y1, x0:x1], "RGBA").save(out / "layers" / f"{name}.png", compress_level=6)
         index["layers"].append({"tag": tag, "file": f"layers/{name}.png", "x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0,
                                 "opaque_px": int((rgba[..., 3] >= ALPHA_T).sum())})
     if res.head_hires and res.head_square:
@@ -60,7 +60,7 @@ def write_layers(res: DecomposeResult, out: Path) -> dict:
             if bb is None:
                 continue
             x0, y0, x1, y1 = bb
-            Image.fromarray(rgba[y0:y1, x0:x1], "RGBA").save(out / "layers_hires" / f"{tag}.png", optimize=True)
+            Image.fromarray(rgba[y0:y1, x0:x1], "RGBA").save(out / "layers_hires" / f"{tag}.png", compress_level=6)
             s = sq[2] / rgba.shape[0]
             index["hires"].append({"tag": tag, "file": f"layers_hires/{tag}.png", "x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0,
                                    "canvas_x": sq[0] + x0 * s, "canvas_y": sq[1] + y0 * s, "scale": s})
@@ -102,7 +102,7 @@ def write_fullcanvas_zip(layers: Dict[str, np.ndarray], psd_path: Optional[Path]
             if tag == "head" or _bbox(rgba) is None:
                 continue
             buf = io.BytesIO()
-            Image.fromarray(rgba, "RGBA").save(buf, "PNG", optimize=True)
+            Image.fromarray(rgba, "RGBA").save(buf, "PNG", compress_level=6)
             z.writestr(f"{tag.replace(' ', '_')}.png", buf.getvalue())
         if psd_path and psd_path.exists():
             z.write(psd_path, "layers.psd")

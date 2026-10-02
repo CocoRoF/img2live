@@ -3,7 +3,7 @@
 **One illustration + a prompt → an animatable 2D puppet you can view in the browser.**
 일러스트 1장과 프롬프트를 올리면 레이어로 분해하고 자동 리깅해서, 브라우저에서 바로 움직여 볼 수 있는 2D 퍼펫(Live2D 류)을 만드는 웹 서비스입니다.
 
-Live demo: **https://imglive.memo-ora.com** (single GPU, small queue — see the limits on the page)
+Live demo: **https://imglive.memo-ora.com** (one GPU, ~7 min per job, small queue — see the limits on the page)
 
 ```
 upload ─► safety gate ─► layer decomposition ─► rig compiler ─► QA ─► web viewer

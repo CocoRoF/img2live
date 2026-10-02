@@ -130,5 +130,5 @@ def pose_sheet(puppet: dict, tex_dir: str, out_path: str, cell: int = 300, cols:
         x, y = (i % cols) * cell, (i // cols) * (cell + pad)
         d.text((x + 6, y + 5), name, fill=(40, 40, 40))
         sheet.paste(Image.fromarray(img), (x, y + pad))
-    sheet.save(out_path, optimize=True)
+    sheet.save(out_path, compress_level=6)
     return out_path
