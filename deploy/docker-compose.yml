@@ -1,0 +1,42 @@
+# img2live: API (CPU) + GPU worker.  Copy .env.example to .env and adjust.
+#   docker compose up -d --build
+name: img2live
+x-common: &common
+  restart: unless-stopped
+  user: "${IMG2LIVE_UID:-1000}:${IMG2LIVE_GID:-1000}"
+  volumes:
+    - ${IMG2LIVE_DATA_DIR:-../data}:/data
+  environment: &env
+    IMG2LIVE_DATA: /data
+    IMG2LIVE_TRUST_PROXY: "${IMG2LIVE_TRUST_PROXY:-1}"
+    IMG2LIVE_IP_SALT: "${IMG2LIVE_IP_SALT:?set IMG2LIVE_IP_SALT in .env}"
+    IMG2LIVE_ACCESS_CODE: "${IMG2LIVE_ACCESS_CODE:-}"
+    IMG2LIVE_PER_IP_PER_DAY: "${IMG2LIVE_PER_IP_PER_DAY:-3}"
+    IMG2LIVE_MAX_QUEUE: "${IMG2LIVE_MAX_QUEUE:-8}"
+    IMG2LIVE_RETENTION_HOURS: "${IMG2LIVE_RETENTION_HOURS:-72}"
+    IMG2LIVE_GATE: "${IMG2LIVE_GATE:-1}"
+    HF_HOME: /data/models/hf-home
+
+services:
+  api:
+    <<: *common
+    build: { context: .., dockerfile: docker/Dockerfile.api }
+    image: img2live-api:local
+    ports:
+      - "127.0.0.1:${IMG2LIVE_PORT:-58600}:8000"
+
+  worker:
+    <<: *common
+    build: { context: .., dockerfile: docker/Dockerfile.worker }
+    image: img2live-worker:local
+    environment:
+      <<: *env
+      IMG2LIVE_ENGINE: "${IMG2LIVE_ENGINE:-layerdiff}"
+      IMG2LIVE_QUANT: "${IMG2LIVE_QUANT:-nf4}"
+      IMG2LIVE_GROUP_OFFLOAD: "${IMG2LIVE_GROUP_OFFLOAD:-1}"
+      IMG2LIVE_STEPS: "${IMG2LIVE_STEPS:-30}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - { driver: nvidia, count: 1, capabilities: [gpu] }

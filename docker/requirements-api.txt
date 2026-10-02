@@ -1,0 +1,11 @@
+# keep in sync with pyproject.toml [project.dependencies] + [server]
+numpy>=2.0
+pillow>=11
+opencv-python-headless>=4.10
+scipy>=1.13
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+onnxruntime>=1.18
+huggingface-hub>=0.24
+psd-tools>=1.10

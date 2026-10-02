@@ -31,3 +31,6 @@ data/
 # test material of unknown rights: internal evaluation only
 bench/inputs/
 bench/outputs/
+
+# deployment secrets
+deploy/.env

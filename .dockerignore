@@ -1,0 +1,12 @@
+.git
+bench
+data
+reference_data
+research
+plan
+docs
+tests
+deploy/.env
+**/__pycache__
+**/*.pyc
+.pytest_cache
