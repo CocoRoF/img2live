@@ -376,15 +376,9 @@ arXiv 검색(제목/초록 기준) "Live2D"는 **4건**: Bunraku(2607.27348), Se
 
 ---
 
-## 9. 로컬 재현 자료 (임시, 세션 종료 시 사라질 수 있음)
+## 9. 재현 메모
 
-- clone: `<scratch>}`
-- psd2live CLI 산출물: `.../scratchpad/repos/p2l_out/tml/` (moc3, model3, physics3, motion3 4종, cmo3, 진단 JSON)
-- psd2live 모션 시트(내장 렌더러, 헤드리스): `.../scratchpad/repos/psd2live/build/tools/motion-sheet/tml-*.png`
-- 실행 명령: `./gradlew run --args="--input examples/tml/psd-input/tml.psd --output <dir>"` (JDK 21, GPU/디스플레이 불필요)
-- 다운로드한 README 사본: `.../scratchpad/readmes/`
-
----
+- psd2live 는 `./gradlew run --args="--input <psd> --output <dir>"` (JDK 21, GPU/디스플레이 불필요)로 헤드리스 실행된다. 임시 작업 산출물 경로는 보존하지 않는다.
 
 ## 10. Sources
 
