@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>img2live — 작업 결과</title>
+<link rel="stylesheet" href="/static/css/app.css">
+<link rel="stylesheet" href="/static/css/viewer.css">
+</head>
+<body>
+<header class="site"><div class="wrap">
+  <a class="brand" href="/">img<b>2</b>live</a>
+  <nav class="site"><a href="/">새로 만들기</a><a href="/terms">약관·고지</a><a href="https://github.com/CocoRoF/img2live" rel="noopener">GitHub</a></nav>
+</div></header>
+<main><div class="wrap">
+  <section class="card" id="status" aria-live="polite">
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <h2 style="margin:0" id="title">작업을 불러오는 중…</h2><span class="pill" id="badge">-</span>
+    </div>
+    <div class="progress" style="margin-top:12px" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="pbar"><i id="pfill"></i></div>
+    <div class="stepper" id="stepper"></div>
+    <p class="small muted" id="msg"></p>
+    <div class="notice bad" id="err" hidden role="alert"></div>
+    <p class="small muted" id="qinfo"></p>
+  </section>
+
+  <section id="result" hidden>
+    <div class="tabs" role="tablist" id="tabs">
+      <button role="tab" aria-selected="true" data-tab="live">라이브 퍼펫</button>
+      <button role="tab" aria-selected="false" data-tab="sheet">리그 점검 시트</button>
+      <button role="tab" aria-selected="false" data-tab="layers">레이어</button>
+      <button role="tab" aria-selected="false" data-tab="compare">원본 vs 합성</button>
+      <button role="tab" aria-selected="false" data-tab="report">리그 보고서</button>
+      <button role="tab" aria-selected="false" data-tab="files">파일·다운로드</button>
+    </div>
+    <div class="panel" id="p-live"><div id="viewerMount"></div></div>
+    <div class="panel" id="p-sheet" hidden>
+      <p class="muted small">뷰어와 별개로 서버가 파이썬 소프트웨어 렌더러로 그린 포즈 시트입니다(머리 좌우·상하·기울임, 눈 감김, 윙크, 시선, 입, 눈썹, 머리카락, 몸, 호흡). 리그가 실제로 어떻게 변형되는지 한눈에 봅니다.</p>
+      <div class="sheet"><a id="sheetLink" target="_blank" rel="noopener"><img id="sheetImg" alt="리그 포즈 점검 시트"></a></div>
+    </div>
+    <div class="panel" id="p-layers" hidden>
+      <p class="muted small">레이어 분해 모델이 만든 결과 그대로입니다(체크무늬 = 투명). 클릭하면 크게 보고 내려받을 수 있습니다.</p>
+      <h3>캔버스 레이어</h3><div class="layer-grid" id="layerGrid"></div>
+      <h3 style="margin-top:22px">머리 패스 고해상도 레이어 <span class="pill" id="hiresBadge"></span></h3>
+      <p class="muted small">얼굴 부위는 머리를 확대해 따로 생성한 고해상도 결과를 퍼펫 텍스처로 씁니다.</p>
+      <div class="layer-grid" id="hiresGrid"></div>
+    </div>
+    <div class="panel" id="p-compare" hidden>
+      <div class="compare"><figure><img id="cmpSrc" alt="원본"><figcaption>원본(분해 캔버스에 맞춰 패딩)</figcaption></figure><figure><img id="cmpComp" alt="레이어 합성"><figcaption>분해된 레이어를 다시 합성한 결과</figcaption></figure></div>
+      <h3 style="margin-top:20px">겹쳐 보기</h3>
+      <label class="small muted">합성 불투명도 <input type="range" id="ovl" min="0" max="100" value="50" aria-label="합성 불투명도"></label>
+      <div class="overlay-wrap" style="margin-top:8px"><img id="ovA" alt=""><img id="ovB" class="top" alt=""></div>
+    </div>
+    <div class="panel" id="p-report" hidden><div id="reportBox"></div></div>
+    <div class="panel" id="p-files" hidden>
+      <h3>다운로드</h3><div id="dlBox" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+      <h3 style="margin-top:22px">모든 파일</h3><div class="scroll-x"><table class="t" id="fileTable"><thead><tr><th>경로</th><th>크기</th></tr></thead><tbody></tbody></table></div>
+      <h3 style="margin-top:22px">삭제</h3>
+      <p class="small muted">작업과 모든 결과 파일을 지금 바로 삭제합니다. 되돌릴 수 없습니다.</p>
+      <button class="btn danger" id="delBtn" type="button">이 작업 지금 삭제</button>
+    </div>
+  </section>
+</div></main>
+<dialog id="dlg"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><b id="dlgTitle"></b><span><a class="btn small" id="dlgDl" download>내려받기</a> <button class="btn small" id="dlgClose" type="button">닫기</button></span></div><div class="checker" style="margin-top:10px;border-radius:10px;text-align:center"><img id="dlgImg" alt="" style="max-width:100%;max-height:70vh"></div></dialog>
+<footer class="site"><div class="wrap"><p>AI 생성물입니다. 업로드·결과는 비공개 링크로만 열리며 만료 후 자동 삭제됩니다. <a href="/terms">약관·고지</a></p></div></footer>
+<script type="module" src="/static/js/job.js"></script>
+</body>
+</html>
