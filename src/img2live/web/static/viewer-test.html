@@ -1,0 +1,52 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>img2live viewer</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="css/viewer.css" data-img2live-css>
+  <style>
+    html, body { height: 100%; margin: 0; background: #f3f5f8; }
+    @media (prefers-color-scheme: dark) { html, body { background: #0e1218; } }
+    #app { height: 100%; }
+    @media (max-width: 860px) { #app { height: auto; min-height: 100%; } }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module">
+    // Standalone full-page viewer.  ?puppet=<url> (default /sample/puppet.json)
+    // Test switches: idle, blink, physics, follow (0/1), camera=fit|head, bg=checker|white|dark|green, wire=1, layers=0, seed=N
+    import { mountViewer } from "./js/viewer.js";
+
+    const q = new URLSearchParams(location.search);
+    const flag = (k) => (q.has(k) ? q.get(k) !== "0" : undefined);
+    const puppetUrl = q.get("puppet") || "/sample/puppet.json";
+    const app = document.getElementById("app");
+    try {
+      const viewer = await mountViewer(app, {
+        puppetUrl,
+        showLayers: q.get("layers") !== "0",
+        initial: {
+          idle: flag("idle"),
+          blink: flag("blink"),
+          physics: flag("physics"),
+          follow: flag("follow"),
+          wireframe: flag("wire"),
+          camera: q.get("camera") || undefined,
+          background: q.get("bg") || undefined,
+          seed: q.has("seed") ? Number(q.get("seed")) : undefined,
+        },
+      });
+      window.__img2live = { viewer, controller: viewer.controller, model: viewer.model, renderer: viewer.renderer };
+      document.documentElement.dataset.ready = "1";
+    } catch (err) {
+      console.error("viewer failed to start:", err);
+      window.__img2liveError = String(err && err.message ? err.message : err);
+      document.documentElement.dataset.ready = "error";
+    }
+  </script>
+</body>
+</html>
