@@ -1,4 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
+// operator code: open the page once as /?owner=CODE; it is kept in this browser only and sent with uploads
+function ownerCode() { try { return localStorage.getItem("i2l_owner") || ""; } catch (e) { return ""; } }
+try {
+  const q = new URLSearchParams(location.search);
+  if (q.get("owner")) { localStorage.setItem("i2l_owner", q.get("owner")); history.replaceState(null, "", location.pathname); }
+} catch (e) { /* storage unavailable: the code simply is not remembered */ }
+
 const $ = (id) => document.getElementById(id);
 const EXAMPLES = ["차분하게, 머리카락은 조금만 흔들리게", "활발하고 통통 튀는 느낌", "머리카락과 꼬리를 바람에 크게 흔들리게",
   "과장된 큰 동작", "calm and gentle motion", "energetic, lively hair sway", "no blink, static pose"];
@@ -18,7 +25,7 @@ async function refreshInfo() {
   $("slowNote").hidden = ok;
   $("sQueue").textContent = `${info.queue} / ${info.max_queue}`;
   $("sEta").textContent = info.queue ? fmtEta(info.eta_seconds * (info.queue + 1)) : fmtEta(info.eta_seconds);
-  $("limits").innerHTML = `<li>하루 IP당 ${info.limits.per_ip_per_day}건</li><li>최대 ${info.limits.max_upload_mb}MB · ${Math.round(info.limits.max_pixels / 1e6)}MP · 짧은 변 ${info.limits.min_side}px 이상</li><li>동시 대기 ${info.max_queue}건</li><li>한 건 약 ${fmtEta(info.eta_seconds)}</li>`;
+  $("limits").innerHTML = `<li>${ownerCode() ? "운영자 코드 적용됨: 하루 제한 없음" : `하루 IP당 ${info.limits.per_ip_per_day}건`}</li><li>최대 ${info.limits.max_upload_mb}MB · ${Math.round(info.limits.max_pixels / 1e6)}MP · 짧은 변 ${info.limits.min_side}px 이상</li><li>동시 대기 ${info.max_queue}건</li><li>한 건 약 ${fmtEta(info.eta_seconds)}</li>`;
   $("codeRow").hidden = !info.access_code_required;
   updateGo();
 }
@@ -74,6 +81,7 @@ $("form").addEventListener("submit", async (e) => {
   const fd = new FormData();
   fd.append("image", file); fd.append("prompt", $("prompt").value); fd.append("resolution", $("res").value);
   fd.append("consent", "yes"); fd.append("access_code", $("code").value || "");
+  if (ownerCode()) fd.append("owner_code", ownerCode());
   try {
     const r = await fetch("/api/jobs", { method: "POST", body: fd });
     const j = await r.json().catch(() => ({}));

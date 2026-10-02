@@ -182,3 +182,17 @@ def test_nose_is_drawn_under_the_eyes():
     from img2live.rig.compile import DRAW_ORDER
 
     assert DRAW_ORDER["face"] < DRAW_ORDER["nose"] < DRAW_ORDER["eyewhite"] < DRAW_ORDER["irides"] < DRAW_ORDER["eyebrow"]
+
+
+def test_owner_code_lifts_the_daily_limit_but_not_the_queue_cap(env):
+    cfg, app, client = env
+    cfg.per_ip_per_day, cfg.max_queue, cfg.owner_code = 1, 10, "s3cret"
+    assert _submit(client).status_code == 200
+    assert _submit(client).status_code == 429                                   # a visitor is limited
+    assert _submit(client, owner_code="wrong").status_code == 429               # a wrong code changes nothing
+    assert _submit(client, owner_code="s3cret").status_code == 200              # the operator is not
+    assert _submit(client, owner_code="s3cret").status_code == 200
+    cfg.owner_code = ""
+    assert _submit(client, owner_code="").status_code == 429                    # no code configured -> nobody bypasses
+    cfg.owner_code, cfg.max_queue = "s3cret", 3
+    assert _submit(client, owner_code="s3cret").status_code == 429              # the queue cap still applies

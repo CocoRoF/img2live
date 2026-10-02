@@ -174,10 +174,13 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     @app.post("/api/jobs")
     async def create_job(request: Request, image: UploadFile = File(...), prompt: str = Form(""),
-                         resolution: int = Form(1280), access_code: str = Form(""), consent: str = Form("")):
+                         resolution: int = Form(1280), access_code: str = Form(""), owner_code: str = Form(""),
+                         consent: str = Form("")):
         if consent != "yes":
             raise HTTPException(400, "약관 동의가 필요합니다. (You must accept the terms.)")
-        if cfg.access_code and not secrets.compare_digest(access_code, cfg.access_code):
+        # the operator's code lifts the per-IP daily limit (the queue cap and everything else still apply)
+        owner = bool(cfg.owner_code) and secrets.compare_digest(owner_code.encode(), cfg.owner_code.encode())
+        if cfg.access_code and not owner and not secrets.compare_digest(access_code, cfg.access_code):
             raise HTTPException(403, "접근 코드가 올바르지 않습니다. (Invalid access code.)")
         if resolution not in RESOLUTIONS:
             raise HTTPException(400, f"resolution must be one of {RESOLUTIONS}")
@@ -188,7 +191,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         ih = ip_hash(ip)
         if db.active_count() >= cfg.max_queue:
             raise HTTPException(429, f"대기열이 가득 찼습니다({cfg.max_queue}). 잠시 후 다시 시도해 주세요. (The queue is full.)")
-        if cfg.per_ip_per_day > 0 and db.recent_by_ip(ih, time.time() - 86400) >= cfg.per_ip_per_day:
+        if not owner and cfg.per_ip_per_day > 0 and db.recent_by_ip(ih, time.time() - 86400) >= cfg.per_ip_per_day:
             raise HTTPException(429, f"하루 {cfg.per_ip_per_day}건까지 처리할 수 있습니다. (Daily limit reached.)")
 
         # ---- read with a hard size cap

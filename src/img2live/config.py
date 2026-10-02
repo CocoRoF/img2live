@@ -30,6 +30,7 @@ class Settings:
     retention_hours: float = field(default_factory=lambda: _f("IMG2LIVE_RETENTION_HOURS", 72))
     # --- access
     access_code: str = field(default_factory=lambda: os.environ.get("IMG2LIVE_ACCESS_CODE", ""))
+    owner_code: str = field(default_factory=lambda: os.environ.get("IMG2LIVE_OWNER_CODE", ""))  # operator: no daily limit
     trust_proxy: bool = field(default_factory=lambda: _b("IMG2LIVE_TRUST_PROXY", False))
     ip_salt: str = field(default_factory=lambda: os.environ.get("IMG2LIVE_IP_SALT", "change-me"))
     contact_url: str = field(default_factory=lambda: os.environ.get("IMG2LIVE_CONTACT_URL", "https://github.com/CocoRoF/img2live/issues"))
