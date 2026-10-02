@@ -31,6 +31,20 @@ def make_engine(cfg):
     return eng, {"engine": "layerdiff3d", "repo": eng.repo, "quant": cfg.quant, "group_offload": cfg.group_offload}
 
 
+def release_gpu_cache() -> None:
+    """Give PyTorch's cached blocks back between jobs (keeps idle VRAM low and fragmentation down)."""
+    try:
+        import gc
+
+        import torch
+
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def gpu_info() -> dict:
     try:
         import torch
@@ -103,6 +117,7 @@ def main() -> int:
         finally:
             state["busy"] = None
             state["done"] += 1
+            release_gpu_cache()
     return 0
 
 
