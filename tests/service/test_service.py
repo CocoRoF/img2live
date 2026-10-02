@@ -184,15 +184,41 @@ def test_nose_is_drawn_under_the_eyes():
     assert DRAW_ORDER["face"] < DRAW_ORDER["nose"] < DRAW_ORDER["eyewhite"] < DRAW_ORDER["irides"] < DRAW_ORDER["eyebrow"]
 
 
-def test_owner_code_lifts_the_daily_limit_but_not_the_queue_cap(env):
+def test_admin_login_lifts_daily_and_queue_limits(env):
     cfg, app, client = env
-    cfg.per_ip_per_day, cfg.max_queue, cfg.owner_code = 1, 10, "s3cret"
+    cfg.per_ip_per_day, cfg.max_queue, cfg.admin_password = 1, 2, "pw-for-test"
     assert _submit(client).status_code == 200
     assert _submit(client).status_code == 429                                   # a visitor is limited
-    assert _submit(client, owner_code="wrong").status_code == 429               # a wrong code changes nothing
-    assert _submit(client, owner_code="s3cret").status_code == 200              # the operator is not
-    assert _submit(client, owner_code="s3cret").status_code == 200
-    cfg.owner_code = ""
-    assert _submit(client, owner_code="").status_code == 429                    # no code configured -> nobody bypasses
-    cfg.owner_code, cfg.max_queue = "s3cret", 3
-    assert _submit(client, owner_code="s3cret").status_code == 429              # the queue cap still applies
+    assert client.get("/api/info").json()["admin"] is False
+    r = client.post("/api/admin/login", data={"password": "nope"})
+    assert r.status_code == 403 and "i2l_admin" not in client.cookies           # wrong password: no session
+    assert _submit(client).status_code == 429
+    r = client.post("/api/admin/login", data={"password": "pw-for-test"})
+    assert r.status_code == 200 and "httponly" in r.headers["set-cookie"].lower()
+    assert client.get("/api/info").json()["admin"] is True
+    for _ in range(3):                                                          # past the per-IP limit (1) and the queue cap (2)
+        assert _submit(client).status_code == 200
+    client.post("/api/admin/logout")
+    assert client.get("/api/info").json()["admin"] is False
+    assert _submit(client).status_code == 429
+
+
+def test_admin_cookie_cannot_be_forged_and_login_is_throttled(env):
+    cfg, app, client = env
+    cfg.per_ip_per_day, cfg.admin_password = 1, "pw-for-test"
+    _submit(client)
+    for forged in ("9999999999.deadbeef", "abc", "1.2", "0.00"):
+        client.cookies.set("i2l_admin", forged)
+        assert client.get("/api/info").json()["admin"] is False, forged
+    client.cookies.clear()
+    codes = [client.post("/api/admin/login", data={"password": f"bad{i}"}).status_code for i in range(7)]
+    assert codes[:5] == [403] * 5 and codes[5:] == [429, 429]                   # locked after 5 failures
+    assert client.post("/api/admin/login", data={"password": "pw-for-test"}).status_code == 429   # even the right one, while locked
+
+
+def test_admin_mode_is_off_without_a_configured_password(env):
+    cfg, app, client = env
+    cfg.admin_password = ""
+    assert client.post("/api/admin/login", data={"password": ""}).status_code == 404
+    client.cookies.set("i2l_admin", "9999999999.00")
+    assert client.get("/api/info").json()["admin"] is False

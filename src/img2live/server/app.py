@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import io
 import json
 import logging
@@ -37,6 +38,9 @@ JOB_ID_RE = re.compile(r"^[A-Za-z0-9_-]{16,40}$")
 ALLOWED_FORMATS = {"PNG", "JPEG", "WEBP"}
 RESOLUTIONS = (1024, 1280)
 MAX_SOURCE_SIDE = 3072
+ADMIN_COOKIE = "i2l_admin"
+ADMIN_SESSION_S = 30 * 86400
+ADMIN_MAX_FAILS, ADMIN_FAIL_WINDOW_S = 5, 900
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -90,6 +94,24 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     def ip_hash(ip: str) -> str:
         return hashlib.sha256((cfg.ip_salt + "|" + ip).encode()).hexdigest()[:24]
+
+    # ---- admin mode: a signed cookie after the right password; admins skip the daily and queue limits
+    def _admin_key() -> bytes:
+        return hashlib.sha256(("i2l-admin|" + cfg.ip_salt + "|" + cfg.admin_password).encode()).digest()
+
+    def _admin_token(exp: int) -> str:
+        return f"{exp}.{hmac.new(_admin_key(), str(exp).encode(), hashlib.sha256).hexdigest()}"
+
+    def is_admin(request: Request) -> bool:
+        if not cfg.admin_password:
+            return False
+        raw = request.cookies.get(ADMIN_COOKIE, "")
+        exp, _, sig = raw.partition(".")
+        if not exp.isdigit() or int(exp) < time.time():
+            return False
+        return hmac.compare_digest(sig.encode(), hmac.new(_admin_key(), exp.encode(), hashlib.sha256).hexdigest().encode())
+
+    login_fails: dict = {}
 
     def eta_seconds() -> float:
         d = db.recent_durations(5)
@@ -158,7 +180,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         return {"ok": True, "version": __version__, "worker": w, "queue": db.active_count(), "gate_ready": gate.session is not None}
 
     @app.get("/api/info")
-    async def info():
+    async def info(request: Request):
         w = worker_status()
         return {"version": __version__, "limits": {"max_upload_mb": cfg.max_upload_mb, "max_pixels": cfg.max_pixels,
                                                     "min_side": cfg.min_side, "per_ip_per_day": cfg.per_ip_per_day,
@@ -166,7 +188,33 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                 "resolutions": list(RESOLUTIONS), "queue": db.active_count(), "max_queue": cfg.max_queue,
                 "eta_seconds": round(eta_seconds()), "worker_alive": w.get("alive", False),
                 "worker_model_loaded": w.get("model_loaded", False), "access_code_required": bool(cfg.access_code),
-                "contact_url": cfg.contact_url}
+                "contact_url": cfg.contact_url, "admin": is_admin(request)}
+
+    @app.post("/api/admin/login")
+    async def admin_login(request: Request, password: str = Form("")):
+        if not cfg.admin_password:
+            raise HTTPException(404, "관리자 모드가 설정되어 있지 않습니다. (Admin mode is not configured.)")
+        ih = ip_hash(client_ip(request))
+        now = time.time()
+        recent = [t for t in login_fails.get(ih, []) if now - t < ADMIN_FAIL_WINDOW_S]
+        if len(recent) >= ADMIN_MAX_FAILS:
+            login_fails[ih] = recent
+            raise HTTPException(429, "비밀번호를 여러 번 틀렸습니다. 잠시 후 다시 시도해 주세요. (Too many attempts.)")
+        if not secrets.compare_digest(password.encode(), cfg.admin_password.encode()):
+            login_fails[ih] = recent + [now]
+            raise HTTPException(403, "비밀번호가 올바르지 않습니다. (Wrong password.)")
+        login_fails.pop(ih, None)
+        resp = JSONResponse({"admin": True})
+        https = request.url.scheme == "https" or (cfg.trust_proxy and request.headers.get("x-forwarded-proto") == "https")
+        resp.set_cookie(ADMIN_COOKIE, _admin_token(int(now) + ADMIN_SESSION_S), max_age=ADMIN_SESSION_S, httponly=True,
+                        samesite="lax", secure=https, path="/")
+        return resp
+
+    @app.post("/api/admin/logout")
+    async def admin_logout():
+        resp = JSONResponse({"admin": False})
+        resp.delete_cookie(ADMIN_COOKIE, path="/")
+        return resp
 
     @app.post("/api/parse-prompt")
     async def parse(prompt: str = Form("")):
@@ -174,13 +222,11 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     @app.post("/api/jobs")
     async def create_job(request: Request, image: UploadFile = File(...), prompt: str = Form(""),
-                         resolution: int = Form(1280), access_code: str = Form(""), owner_code: str = Form(""),
-                         consent: str = Form("")):
+                         resolution: int = Form(1280), access_code: str = Form(""), consent: str = Form("")):
         if consent != "yes":
             raise HTTPException(400, "약관 동의가 필요합니다. (You must accept the terms.)")
-        # the operator's code lifts the per-IP daily limit (the queue cap and everything else still apply)
-        owner = bool(cfg.owner_code) and secrets.compare_digest(owner_code.encode(), cfg.owner_code.encode())
-        if cfg.access_code and not owner and not secrets.compare_digest(access_code, cfg.access_code):
+        admin = is_admin(request)  # admins skip the access code, the per-IP daily limit and the queue cap
+        if cfg.access_code and not admin and not secrets.compare_digest(access_code, cfg.access_code):
             raise HTTPException(403, "접근 코드가 올바르지 않습니다. (Invalid access code.)")
         if resolution not in RESOLUTIONS:
             raise HTTPException(400, f"resolution must be one of {RESOLUTIONS}")
@@ -189,9 +235,9 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             raise HTTPException(503, "GPU 작업기가 아직 준비 중입니다. 잠시 후 다시 시도해 주세요. (The GPU worker is not ready yet.)")
         ip = client_ip(request)
         ih = ip_hash(ip)
-        if db.active_count() >= cfg.max_queue:
+        if not admin and db.active_count() >= cfg.max_queue:
             raise HTTPException(429, f"대기열이 가득 찼습니다({cfg.max_queue}). 잠시 후 다시 시도해 주세요. (The queue is full.)")
-        if not owner and cfg.per_ip_per_day > 0 and db.recent_by_ip(ih, time.time() - 86400) >= cfg.per_ip_per_day:
+        if not admin and cfg.per_ip_per_day > 0 and db.recent_by_ip(ih, time.time() - 86400) >= cfg.per_ip_per_day:
             raise HTTPException(429, f"하루 {cfg.per_ip_per_day}건까지 처리할 수 있습니다. (Daily limit reached.)")
 
         # ---- read with a hard size cap
