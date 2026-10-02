@@ -131,6 +131,27 @@ def _clean_one(rgba: np.ndarray, sil: Optional[np.ndarray], rep: CleanupReport, 
     return cur
 
 
+def decontaminate(rgba: np.ndarray, solid: float = 0.9, reach: int = 6) -> np.ndarray:
+    """Give semi-transparent edge pixels the colour of the nearest (nearly) opaque pixel, alpha unchanged.
+
+    The decoder's colour under low alpha drifts towards black (the transparent area is dark), so a plain alpha blend
+    shows a dark fringe, e.g. a grey ring around a skin-coloured eyelid layer.  ``reach`` limits how far a colour may
+    be taken (px): thin strokes that never become opaque keep their own colour.
+    """
+    from scipy import ndimage as ndi
+
+    a = rgba[..., 3]
+    core = a >= int(255 * solid)
+    semi = (a > 0) & ~core
+    if not core.any() or not semi.any():
+        return rgba
+    dist, (iy, ix) = ndi.distance_transform_edt(~core, return_indices=True)
+    take = semi & (dist <= reach)
+    out = rgba.copy()
+    out[take, :3] = rgba[iy[take], ix[take], :3]
+    return out
+
+
 UNCOVERED_SEVERE = 0.08   # more than this share of the silhouette without any layer: the decomposition failed
 
 
@@ -205,4 +226,7 @@ def clean_result(res, margin: int = 3, min_island_frac: float = 0.0015) -> Clean
             sil_hi = cv2.warpAffine(sil.astype(np.uint8), M, (n, n), flags=cv2.INTER_NEAREST, borderValue=0) > 0
         for tag in list(res.head_hires):
             res.head_hires[tag] = _clean_one(res.head_hires[tag], sil_hi, rep, "hires:" + tag, min_island_frac, track_leak=False)
+    # the hi-res head layers are drawn 5-6x larger than the source, where a dark colour fringe on soft edges shows as a ring
+    for tag in list(res.head_hires):
+        res.head_hires[tag] = decontaminate(res.head_hires[tag], reach=12)
     return rep

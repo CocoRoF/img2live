@@ -31,5 +31,6 @@ class DecomposeResult:
     seed: int = 0
     steps: int = 30
     timings: Dict[str, float] = field(default_factory=dict)
+    fidelity: Dict[str, float] = field(default_factory=dict)  # head-part tag -> share removed because the source disagrees
 
 

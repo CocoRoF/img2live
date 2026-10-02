@@ -199,6 +199,6 @@ class FakeDecomposer:
             progress("head", 0.55 + 0.45 * (i + 1) / 10, f"synthetic head pass {i + 1}/10")
             time.sleep(0.05)
         h, w = rgba.shape[:2]
-        return DecomposeResult(canvas=resolution, source_size=(w, h), layers=layers, head_hires=hires, head_square=sq,
+        return DecomposeResult(canvas=resolution, source_size=(resolution, resolution), layers=layers, head_hires=hires, head_square=sq,
                                fullpage=fullpage, source_box=(0, 0, resolution, resolution), seed=seed, steps=steps,
                                timings={"body_s": 0.5, "head_s": 0.5, "total_s": time.time() - t0})

@@ -66,6 +66,9 @@ def test_full_flow(env):
     assert {"layers.psd", "layers_fullcanvas.zip", "puppet.zip"} <= names
     rep = client.get(f"/files/{jid}/report.json").json()
     assert rep["qa"]["passed"] and rep["rigSpec"]["motion_intensity"] < 1.0 and rep["rigSpec"]["hair_strength"] > 1.0
+    fid = rep["decompose"]["fidelity"]                       # the synthetic character matches its own source: nothing is cut
+    assert set(fid) >= {"nose", "eyelash", "canvas:topwear"} and all(v < 0.1 for v in fid.values()), fid
+    assert "fidelity_s" in rep["timings"]
     # delete
     assert client.delete(f"/api/jobs/{jid}").json()["deleted"]
     assert client.get(f"/api/jobs/{jid}").status_code == 404

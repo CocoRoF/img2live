@@ -174,23 +174,29 @@ class Decomposer:
 
         # canvas-scale head layers (what the original See-through produces): shrink the head-square output to
         # canvas scale and paste it; kept so every consumer that wants plain canvas layers still works
-        out_side = max(1, int(round(side_c)))
-        px0, py0 = int(round(x0_c)), int(round(y0_c))
         for tag, img in zip(HEAD_TAGS, head_imgs):
-            small = smart_resize(img, (out_side, out_side))
-            canvas = np.zeros((resolution, resolution, 4), dtype=np.uint8)
-            sx0, sy0 = max(0, -px0), max(0, -py0)
-            dx0, dy0 = max(0, px0), max(0, py0)
-            w = min(out_side - sx0, resolution - dx0)
-            h = min(out_side - sy0, resolution - dy0)
-            if w > 0 and h > 0:
-                canvas[dy0:dy0 + h, dx0:dx0 + w] = small[sy0:sy0 + h, sx0:sx0 + w]
-            layers[tag] = canvas
+            layers[tag] = head_to_canvas(img, result.head_square, resolution)
 
         result.layers = layers
         result.timings = {"body_s": t_body, "head_s": t_head, "total_s": time.time() - t_start}
         progress("done", 1.0, "decomposition finished")
         return result
+
+
+def head_to_canvas(img: np.ndarray, head_square: Tuple[float, float, float], resolution: int) -> np.ndarray:
+    """Shrink a hi-res head-pass layer to canvas scale and place it on a transparent canvas x canvas layer."""
+    x0_c, y0_c, side_c = head_square
+    out_side = max(1, int(round(side_c)))
+    px0, py0 = int(round(x0_c)), int(round(y0_c))
+    small = smart_resize(img, (out_side, out_side))
+    canvas = np.zeros((resolution, resolution, 4), dtype=np.uint8)
+    sx0, sy0 = max(0, -px0), max(0, -py0)
+    dx0, dy0 = max(0, px0), max(0, py0)
+    w = min(out_side - sx0, resolution - dx0)
+    h = min(out_side - sy0, resolution - dy0)
+    if w > 0 and h > 0:
+        canvas[dy0:dy0 + h, dx0:dx0 + w] = small[sy0:sy0 + h, sx0:sx0 + w]
+    return canvas
 
 
 def _crop_head(img: np.ndarray, xywh) -> Tuple[np.ndarray, Tuple[int, int, int, int]]:

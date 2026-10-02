@@ -16,6 +16,8 @@ from .. import __version__
 from ..config import Settings
 from ..db import DB
 from ..engine.cleanup import clean_result
+from ..engine.decompose import head_to_canvas
+from ..engine.fidelity import refine_canvas, refine_head
 from ..engine.matting import cutout_plain_background
 from ..engine.types import DecomposeResult
 from ..rig.compile import compile_puppet
@@ -71,6 +73,15 @@ def process_job(job: dict, cfg: Settings, db: DB, engine, engine_info: dict) -> 
         log.warning("job %s attempt %d: severe decomposition problem in %s%s", jid, attempt, cl.severe, " - retrying" if attempt < cfg.retries else "")
         upd("decompose", 0.30, f"decomposition problem ({', '.join(cl.severe)}); retrying with another seed")
     timings["decompose_attempts"] = len(attempts)
+    t0 = time.time()
+    try:  # drop generated detail that the source contradicts (a tinted nose patch, a contour round the eyelid, a hem band)
+        res.fidelity = dict(refine_head(res))
+        for tag in list(res.fidelity):
+            res.layers[tag] = head_to_canvas(res.head_hires[tag], res.head_square, res.canvas)
+        res.fidelity.update({"canvas:" + k: v for k, v in refine_canvas(res).items()})
+    except Exception:  # noqa: BLE001 - an optional refinement must never fail the job
+        log.exception("fidelity refinement failed")
+    timings["fidelity_s"] = round(time.time() - t0, 2)
     timings.update({f"decompose_{k}": round(v, 2) for k, v in res.timings.items()})
     nonempty = [t for t, a in res.layers.items() if t != "head" and (a[..., 3] > 16).any()]
     if len(nonempty) < 4 or "face" not in nonempty:
@@ -116,7 +127,8 @@ def process_job(job: dict, cfg: Settings, db: DB, engine, engine_info: dict) -> 
     job_report = {
         "version": __version__, "job": jid, "prompt": job.get("prompt", ""), "resolution": job["resolution"], "seed": job["seed"],
         "steps": cfg.steps, "engine": engine_info, "timings": timings, "rigSpec": spec.to_dict(),
-        "capability": report["capability"], "qa": report["qa"], "decompose": {"attempts": attempts, "cleanup": cleanup.to_dict(), "background_cutout": matting}, "rig_stats": report["stats"], "rig_notes": report["notes"],
+        "capability": report["capability"], "qa": report["qa"], "decompose": {"attempts": attempts, "cleanup": cleanup.to_dict(), "background_cutout": matting,
+                                                                                          "fidelity": {k: round(v, 3) for k, v in res.fidelity.items()}}, "rig_stats": report["stats"], "rig_notes": report["notes"],
         "layers": {"nonempty": sorted(nonempty), "head_hires": [h["tag"] for h in index.get("hires", [])],
                    "head_square": index.get("head_square")},
         "gate": (job.get("gate_json") or {}),
