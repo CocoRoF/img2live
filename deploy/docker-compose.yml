@@ -22,6 +22,8 @@ services:
     <<: *common
     build: { context: .., dockerfile: docker/Dockerfile.api }
     image: img2live-api:local
+    cpus: "1"
+    mem_limit: 1g
     ports:
       - "127.0.0.1:${IMG2LIVE_PORT:-58600}:8000"
 
@@ -35,6 +37,13 @@ services:
       IMG2LIVE_QUANT: "${IMG2LIVE_QUANT:-nf4}"
       IMG2LIVE_GROUP_OFFLOAD: "${IMG2LIVE_GROUP_OFFLOAD:-1}"
       IMG2LIVE_STEPS: "${IMG2LIVE_STEPS:-30}"
+      # keep the CPU side modest: the host is shared (group offload would otherwise spin ~7 cores)
+      OMP_NUM_THREADS: "${IMG2LIVE_WORKER_THREADS:-4}"
+      MKL_NUM_THREADS: "${IMG2LIVE_WORKER_THREADS:-4}"
+      OPENBLAS_NUM_THREADS: "${IMG2LIVE_WORKER_THREADS:-4}"
+    cpus: "${IMG2LIVE_WORKER_CPUS:-4}"
+    cpu_shares: 512
+    mem_limit: "${IMG2LIVE_WORKER_MEM:-12g}"
     deploy:
       resources:
         reservations:
