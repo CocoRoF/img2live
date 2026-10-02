@@ -1,0 +1,33 @@
+# local / runtime artifacts
+__pycache__/
+*.pyc
+.venv/
+venv/
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# third-party reference checkouts — NEVER pushed (we implement our own engine)
+reference_data/
+
+# model weights, caches, generated outputs, runtime data
+hf/
+workspace/
+outputs/
+data/
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.onnx
+
+# test material of unknown rights: internal evaluation only
+bench/inputs/
+bench/outputs/

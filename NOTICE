@@ -1,0 +1,47 @@
+img2live
+Copyright 2026 the img2live contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+------------------------------------------------------------------------------
+Third-party code incorporated into this repository
+------------------------------------------------------------------------------
+
+1. See-through: Single-image Layer Decomposition for Anime Characters
+   https://github.com/shitagaki-lab/see-through   (Apache-2.0)
+   Authors: Jian Lin, Chengze Li, Haoyun Qin, Kwun Wang Chan, Yanghua Jin,
+            Hanyuan Liu, Stephen Chun Wang Choy, Xueting Liu
+   Paper:   arXiv:2602.03749, ACM SIGGRAPH 2026 Conference Papers
+            doi:10.1145/3799902.3811209
+   Files under src/img2live/engine/ are derived from this project (the
+   LayerDiff3D UNet / transparent VAE / k-diffusion SDXL pipeline and the
+   body/head two-pass inference procedure). They were modified: imports were
+   flattened into this package, utility functions were extracted, the
+   inference procedure was re-implemented as a library API, and the head pass
+   keeps its native high-resolution output. Each derived file carries a
+   header stating its origin and that it was modified.
+
+2. LayerDiffuse (Lvmin Zhang et al.)   https://github.com/lllyasviel/LayerDiffuse
+   Code: Apache-2.0. The transparent-VAE design used by the engine follows this work.
+
+3. Marigold (Marigold Team, ETH Zurich)  https://github.com/prs-eth/Marigold
+   Apache-2.0. NOT included in the default pipeline (the optional depth stage
+   is disabled; see docs).
+
+------------------------------------------------------------------------------
+Model weights (downloaded at runtime, NOT redistributed in this repository)
+------------------------------------------------------------------------------
+
+The See-through weights are released under the CreativeML Open RAIL++-M
+licence family (they derive from Animagine XL 4.0, Stable Diffusion XL 1.0 and
+LayerDiffuse). Commercial use is permitted, but the licence's use-based
+restrictions (Attachment A) MUST be passed on to every user of a hosted service.
+They are reproduced in the service's Terms of Use (src/img2live/web/static/terms.html).
+
+The WD tagger v3 (SmilingWolf/wd-vit-tagger-v3, Apache-2.0) is downloaded at
+runtime and used only as an input safety filter.
+
+img2live is an independent project. It is not affiliated with, endorsed by, or
+sponsored by Live2D Inc. or the authors of See-through. "Live2D" and "Cubism"
+are trademarks of Live2D Inc.; this project neither uses the Cubism SDK/Core
+nor distributes Live2D software.
