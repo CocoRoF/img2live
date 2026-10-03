@@ -171,7 +171,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     @app.get("/robots.txt", include_in_schema=False)
     async def robots():
-        return PlainTextResponse("User-agent: *\nDisallow: /j/\nDisallow: /files/\nDisallow: /api/\n")
+        return PlainTextResponse("User-agent: *\nDisallow: /j/\nDisallow: /files/\nDisallow: /api/\nDisallow: /admin\n")
 
     # ------------------------------------------------------------------ API
     @app.get("/api/health")
@@ -215,6 +215,59 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         resp = JSONResponse({"admin": False})
         resp.delete_cookie(ADMIN_COOKIE, path="/")
         return resp
+
+    def require_admin(request: Request) -> None:
+        if not is_admin(request):
+            raise HTTPException(403, "관리자 모드가 필요합니다. (Admin mode required.)")
+
+    @app.get("/api/admin/jobs")
+    async def admin_jobs(request: Request, status: str = "", q: str = "", limit: int = 24, offset: int = 0):
+        """Every job that still exists (retention applies), newest first - for the operator only."""
+        require_admin(request)
+        if status not in ("", "queued", "running", "done", "failed"):
+            raise HTTPException(400, "unknown status")
+        rows, total = db.list_jobs(status=status, q=q.strip()[:80], limit=max(1, min(int(limit), 100)), offset=max(0, int(offset)))
+        items = []
+        for j in rows:
+            t = j.get("timings_json") or {}
+            items.append({k: j.get(k) for k in ("id", "status", "stage", "progress", "message", "prompt", "resolution", "seed",
+                                                "created_at", "started_at", "finished_at", "delete_after", "error")}
+                         | {"total_s": t.get("total_s"), "attempts": t.get("decompose_attempts"),
+                            "has_thumb": (cfg.jobs_dir / j["id"] / "composite.png").exists()})
+        counts = {k: v for k, v in db.counts().items() if k != "deleted"}
+        return {"total": total, "counts": counts, "items": items, "now": time.time(), "queue": db.active_count()}
+
+    @app.get("/api/admin/jobs/{job_id}/thumb")
+    async def admin_thumb(request: Request, job_id: str):
+        require_admin(request)
+        if not JOB_ID_RE.match(job_id):
+            raise HTTPException(404, "not found")
+        jdir = cfg.jobs_dir / job_id
+        thumb, comp = jdir / "thumb.png", jdir / "composite.png"
+        if not thumb.exists():
+            if not comp.exists():
+                raise HTTPException(404, "no preview")
+
+            def make():
+                im = Image.open(comp).convert("RGBA")
+                box = im.getchannel("A").point(lambda a: 255 if a > 16 else 0).getbbox()
+                if box:
+                    im = im.crop(box)
+                im.thumbnail((320, 320), Image.LANCZOS)
+                tmp = thumb.with_suffix(".tmp.png")
+                im.save(tmp, compress_level=6)
+                tmp.replace(thumb)
+
+            try:
+                await asyncio.to_thread(make)
+            except Exception:  # noqa: BLE001
+                raise HTTPException(404, "no preview")
+        return FileResponse(thumb, media_type="image/png", headers={"Cache-Control": "private, max-age=300"})
+
+    @app.get("/admin", include_in_schema=False)
+    async def admin_page():
+        # the page itself is public (it shows a hint when not signed in); its data endpoints are not
+        return FileResponse(STATIC_DIR / "admin.html", media_type="text/html; charset=utf-8", headers={"Cache-Control": "no-cache, no-transform"})
 
     @app.post("/api/parse-prompt")
     async def parse(prompt: str = Form("")):

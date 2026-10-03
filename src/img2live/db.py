@@ -100,6 +100,25 @@ class DB:
             rows = c.execute("SELECT status, COUNT(*) n FROM jobs GROUP BY status").fetchall()
         return {r["status"]: r["n"] for r in rows}
 
+    def list_jobs(self, status: str = "", q: str = "", limit: int = 24, offset: int = 0) -> tuple:
+        """Admin listing, newest first.  Deleted jobs carry nothing (their row is blanked) and are never listed."""
+        where, args = ["status != 'deleted'"], []
+        if status:
+            where.append("status = ?")
+            args.append(status)
+        if q:
+            where.append("(id LIKE ? ESCAPE '\\' OR prompt LIKE ? ESCAPE '\\')")
+            like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            args += [like, like]
+        cond = " AND ".join(where)
+        cols = ("id, created_at, started_at, finished_at, delete_after, status, stage, progress, message, prompt, resolution, "
+                "seed, timings_json, error")
+        with self._conn() as c:
+            total = int(c.execute(f"SELECT COUNT(*) FROM jobs WHERE {cond}", args).fetchone()[0])
+            rows = c.execute(f"SELECT {cols} FROM jobs WHERE {cond} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                             args + [int(limit), int(offset)]).fetchall()
+        return [self._row(r) for r in rows], total
+
     def recent_by_ip(self, ip_hash: str, since: float) -> int:
         with self._conn() as c:
             return int(c.execute("SELECT COUNT(*) FROM jobs WHERE ip_hash=? AND created_at>=? AND status!='deleted'",

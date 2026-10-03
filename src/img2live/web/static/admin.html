@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>전체 퍼펫 · img2live</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+<header class="site"><div class="wrap">
+  <a class="brand" href="/">img<b>2</b>live</a>
+  <nav class="site"><a href="/">처음으로</a></nav>
+</div></header>
+<main><div class="wrap">
+  <section id="gate" class="card" hidden>
+    <h1>관리자 전용</h1>
+    <p class="muted">이 화면은 관리자 모드에서만 열립니다. 아무 페이지에서 <b>Alt + Shift + M</b>을 눌러 비밀번호를 입력하세요.</p>
+  </section>
+
+  <section id="panel" hidden>
+    <div class="adm-head">
+      <div><h1>전체 퍼펫</h1><p class="muted small" id="summary">불러오는 중…</p></div>
+      <div class="adm-tools">
+        <input id="q" type="search" placeholder="주소나 프롬프트로 검색" aria-label="검색" autocomplete="off">
+        <select id="status" aria-label="상태">
+          <option value="">전체 상태</option><option value="done">완료</option><option value="running">진행 중</option>
+          <option value="queued">대기</option><option value="failed">실패</option>
+        </select>
+      </div>
+    </div>
+    <div id="counts" class="adm-counts"></div>
+    <div id="list" class="adm-grid"></div>
+    <p id="empty" class="muted" hidden>조건에 맞는 작업이 없습니다.</p>
+    <div class="adm-more"><button id="more" class="btn" hidden>더 보기</button></div>
+    <p class="muted small">작업은 처리 후 72시간이 지나면 자동으로 삭제됩니다. 그래서 이 목록에는 그 안에 있는 것만 보입니다.</p>
+  </section>
+</div></main>
+<script type="module" src="/static/js/admin.js"></script>
+<script type="module" src="/static/js/admin-jobs.js"></script>
+</body>
+</html>

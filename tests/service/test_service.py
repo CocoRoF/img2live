@@ -225,3 +225,52 @@ def test_admin_mode_is_off_without_a_configured_password(env):
     assert client.post("/api/admin/login", data={"password": ""}).status_code == 404
     client.cookies.set("i2l_admin", "9999999999.00")
     assert client.get("/api/info").json()["admin"] is False
+
+
+def test_admin_can_list_every_job_and_preview_it_visitors_cannot(env):
+    cfg, app, client = env
+    cfg.per_ip_per_day, cfg.max_queue, cfg.admin_password = 20, 20, "pw-for-test"
+    a = _submit(client, prompt="차분하게 100% 흔들림_보통").json()["id"]
+    b = _submit(client, prompt="활발하게").json()["id"]
+    c = _submit(client, prompt="삭제할 것").json()["id"]
+    job = app.state.db.claim_next()
+    assert job["id"] == a
+    eng = FakeDecomposer(); eng.load()
+    process_job(job, cfg, app.state.db, eng, {"engine": "fake"})             # a: done, with a composite to preview
+    app.state.db.update(b, status="failed", error="boom")                     # b: failed, nothing to preview
+
+    # a visitor sees nothing
+    assert client.get("/api/admin/jobs").status_code == 403
+    assert client.get(f"/api/admin/jobs/{a}/thumb").status_code == 403
+    assert client.post("/api/admin/login", data={"password": "pw-for-test"}).status_code == 200
+
+    d = client.get("/api/admin/jobs").json()
+    assert d["total"] == 3 and [j["id"] for j in d["items"]] == [c, b, a]     # newest first
+    assert d["counts"] == {"done": 1, "failed": 1, "queued": 1}
+    by = {j["id"]: j for j in d["items"]}
+    assert by[a]["has_thumb"] and by[a]["total_s"] and not by[b]["has_thumb"] and by[b]["error"] == "boom"
+    assert [j["id"] for j in client.get("/api/admin/jobs?status=done").json()["items"]] == [a]
+    assert client.get("/api/admin/jobs?status=bogus").status_code == 400
+    # search: by prompt (percent sign and underscore are literal) and by id
+    assert [j["id"] for j in client.get("/api/admin/jobs", params={"q": "100%"}).json()["items"]] == [a]
+    assert [j["id"] for j in client.get("/api/admin/jobs", params={"q": "흔들림_보"}).json()["items"]] == [a]
+    assert client.get("/api/admin/jobs", params={"q": "100_"}).json()["total"] == 0
+    assert [j["id"] for j in client.get("/api/admin/jobs", params={"q": b[:10]}).json()["items"]] == [b]
+    # pagination
+    p1 = client.get("/api/admin/jobs?limit=2&offset=0").json(); p2 = client.get("/api/admin/jobs?limit=2&offset=2").json()
+    assert p1["total"] == 3 and [j["id"] for j in p1["items"]] + [j["id"] for j in p2["items"]] == [c, b, a]
+
+    # thumbnails: made from the composite, cached, cropped to the character, never for a job without one
+    r = client.get(f"/api/admin/jobs/{a}/thumb")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    im = Image.open(io.BytesIO(r.content)); assert max(im.size) <= 320 and im.mode == "RGBA"
+    assert (cfg.jobs_dir / a / "thumb.png").exists()
+    assert client.get(f"/api/admin/jobs/{b}/thumb").status_code == 404
+    assert client.get("/api/admin/jobs/..%2F..%2Fetc/thumb").status_code == 404
+    assert client.get("/api/admin/jobs/not-a-job-id/thumb").status_code == 404
+
+    # a deleted job leaves the list
+    assert client.delete(f"/api/jobs/{c}").json()["deleted"]
+    assert [j["id"] for j in client.get("/api/admin/jobs").json()["items"]] == [b, a]
+    # the page itself is served to everyone but is not for crawlers
+    assert client.get("/admin").status_code == 200 and "Disallow: /admin" in client.get("/robots.txt").text

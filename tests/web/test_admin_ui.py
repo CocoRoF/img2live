@@ -91,3 +91,85 @@ def test_alt_shift_m_login_and_logout(site):
         assert page.locator("#adminOverlay").count() == 0
         assert errors == []
         b.close()
+
+
+@pytest.fixture()
+def site_with_jobs(tmp_path):
+    from PIL import Image, ImageDraw
+
+    cfg = Settings(data_dir=tmp_path)
+    cfg.ensure_dirs()
+    cfg.gate_enabled, cfg.per_ip_per_day, cfg.admin_password = False, 3, PASSWORD
+    (cfg.data_dir / "worker.json").write_text(json.dumps({"ts": time.time() + 3600, "model_loaded": True}))
+    app = create_app(cfg)
+    db = app.state.db
+    now = time.time()
+    ids = {}
+    for name, prompt, status in (("ok", "차분하게, 머리카락은 조금", "done"), ("bad", "활발하게", "failed"), ("wait", "대기 중인 것", "queued")):
+        jid = "t" + name * 3 + "x" * 14
+        db.create(jid, prompt, 1280, 1, "ih", {}, 72)
+        ids[name] = jid
+        if status != "queued":
+            db.update(jid, status=status, stage=status, progress=1.0, finished_at=now, delete_after=now + 3600 * 40,
+                      timings_json={"total_s": 421.0, "decompose_attempts": 2},
+                      error="분해하지 못했습니다" if status == "failed" else None)
+    jdir = cfg.jobs_dir / ids["ok"]
+    jdir.mkdir(parents=True)
+    im = Image.new("RGBA", (1280, 1280), (0, 0, 0, 0))
+    ImageDraw.Draw(im).ellipse([500, 200, 780, 900], fill=(90, 80, 200, 255))
+    im.save(jdir / "composite.png")
+    with socket.socket() as sk:
+        sk.bind(("127.0.0.1", 0))
+        port = sk.getsockname()[1]
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    t = threading.Thread(target=server.run, daemon=True)
+    t.start()
+    while not server.started:
+        time.sleep(0.05)
+    yield f"http://127.0.0.1:{port}", ids
+    server.should_exit = True
+    t.join(5)
+
+
+def test_admin_page_lists_every_puppet(site_with_jobs):
+    base, ids = site_with_jobs
+    with sync_api.sync_playwright() as p:
+        b = p.chromium.launch(executable_path=CHROME_PATH, args=["--no-sandbox"])
+        page = b.new_context(viewport={"width": 1200, "height": 900}).new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("dialog", lambda d: d.accept())
+        page.goto(base + "/admin")
+        page.wait_for_selector("#gate:not([hidden])")
+        assert page.locator("#panel").is_hidden() and page.locator(".adm-card").count() == 0   # a visitor sees no jobs
+
+        page.keyboard.press("Alt+Shift+M")
+        page.fill("#adminOverlay input[type=password]", PASSWORD)
+        page.click("#adminOverlay button[type=submit]")
+        page.wait_for_selector(".adm-card")                                    # the page reloads itself once signed in
+        until(lambda: page.locator(".adm-card").count() == 3, "three cards")
+        assert page.locator(".adm-card").first.get_attribute("data-id") == ids["wait"]   # newest first
+        until(lambda: page.locator(f'[data-id="{ids["ok"]}"] img').count() == 1, "the thumbnail")
+        until(lambda: page.evaluate(f'document.querySelector(\'[data-id="{ids["ok"]}"] img\').naturalWidth') > 0, "thumbnail loaded")
+        assert page.locator(f'[data-id="{ids["ok"]}"] a.btn').get_attribute("href") == f"/j/{ids['ok']}"
+        assert "분해하지 못했습니다" in page.inner_text(f'[data-id="{ids["bad"]}"]') and "재시도 1회" in page.inner_text(f'[data-id="{ids["ok"]}"]')
+        assert "삭제까지" in page.inner_text(f'[data-id="{ids["ok"]}"]')
+
+        page.click('[data-status="failed"]')                                   # filter by clicking the count
+        until(lambda: page.locator(".adm-card").count() == 1, "the failed filter")
+        page.click('[data-status="failed"]')
+        until(lambda: page.locator(".adm-card").count() == 3, "filter cleared")
+        page.fill("#q", "머리카락")                                             # search by prompt
+        until(lambda: page.locator(".adm-card").count() == 1, "the search")
+        page.fill("#q", "")
+        until(lambda: page.locator(".adm-card").count() == 3, "search cleared")
+
+        page.click(f'[data-del="{ids["bad"]}"]')                               # delete one (the confirm dialog is accepted)
+        until(lambda: page.locator(f'[data-id="{ids["bad"]}"]').count() == 0, "the card to go")
+        until(lambda: page.locator(".adm-card").count() == 2, "two cards left")
+
+        page.goto(base + "/")                                                  # the badge leads here from any page
+        page.wait_for_selector("#adminBadge")
+        assert page.locator("#adminBadge").get_attribute("href") == "/admin"
+        assert errors == []
+        b.close()

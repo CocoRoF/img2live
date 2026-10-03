@@ -13,7 +13,7 @@ function el(tag, attrs = {}, ...kids) {
 function badge() {
   let b = document.getElementById("adminBadge");
   if (STATE.admin && !b) {
-    b = el("span", { id: "adminBadge", class: "pill ok admin-badge", title: "관리자 모드 (Alt+Shift+M)" }, "관리자");
+    b = el("a", { id: "adminBadge", class: "pill ok admin-badge", href: "/admin", title: "관리자 모드 — 전체 퍼펫 보기 (Alt+Shift+M 로 로그아웃)" }, "관리자 · 전체 퍼펫");
     (document.querySelector("header.site .wrap") || document.body).append(b);
   } else if (!STATE.admin && b) b.remove();
 }
@@ -34,7 +34,8 @@ function openDialog() {
   cancel.addEventListener("click", closeDialog);
   if (STATE.admin) {
     const out = el("button", { type: "submit", class: "btn" }, "로그아웃");
-    box.append(el("h2", {}, "관리자 모드"), el("p", { class: "muted" }, "사용 중입니다. 하루 제한과 대기열 제한이 없습니다."), err, el("div", { class: "admin-row" }, out, cancel));
+    const list = el("a", { class: "btn primary", href: "/admin" }, "전체 퍼펫 보기");
+    box.append(el("h2", {}, "관리자 모드"), el("p", { class: "muted" }, "사용 중입니다. 하루 제한과 대기열 제한이 없고, 모든 퍼펫을 볼 수 있습니다."), err, el("div", { class: "admin-row" }, list, out, cancel));
     box.addEventListener("submit", async (e) => { e.preventDefault(); await fetch("/api/admin/logout", { method: "POST" }); done(false); });
   } else {
     const pw = el("input", { type: "password", name: "password", autocomplete: "off", placeholder: "비밀번호", "aria-label": "관리자 비밀번호" });
