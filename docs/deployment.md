@@ -24,3 +24,13 @@ Cloudflare (TLS, WAF) ──tunnel──► 127.0.0.1:58600  api (FastAPI)  ─�
 ```bash
 git pull && docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 ```
+
+## Admin mode
+
+Set `IMG2LIVE_ADMIN_PASSWORD` in `deploy/.env` (never commit it).  On any page press **Alt+Shift+M**, enter the password and you
+are signed in (signed cookie, 30 days): no per-IP daily limit, no queue cap, and `/admin` lists every job that still exists
+(thumbnails, search, status filter, delete).  Wrong passwords are throttled (5 per 15 minutes per IP).  With the variable
+empty, admin mode is off.  Operator access to all jobs is disclosed in the terms page.
+
+Static assets are referenced with a content hash (`?v=`) and `/static` revalidates, so a CDN in front cannot serve stale
+scripts or styles after a deploy.
