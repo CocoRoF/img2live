@@ -452,7 +452,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         return FileResponse(target, media_type=ctype, headers={
             "Cache-Control": "private, max-age=600", "Content-Disposition": f'{disp}; filename="{target.name}"'})
 
-    register_studio(app, cfg, db)
+    register_studio(app, cfg, db, {"is_admin": is_admin, "client_ip": client_ip, "ip_hash": ip_hash, "worker_status": worker_status})
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     return app
 

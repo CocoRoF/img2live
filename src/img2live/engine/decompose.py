@@ -111,6 +111,42 @@ class Decomposer:
                    show_progress=False)
         return out.images  # list of HxWx4 uint8, order == tags
 
+    def regen(self, rgba: np.ndarray, tags, resolution: int = 1280, steps: int = 30, seed: int = 42,
+              head_square: Optional[Tuple[float, float, float]] = None,
+              progress: Optional[ProgressFn] = None) -> Dict[str, np.ndarray]:
+        """Run the model again for just ``tags``; returns tag -> RGBA (resolution x resolution) in the layer's edit grid.
+
+        Body tags come from one pass over the whole character, head tags from one pass over the head square the job
+        already uses (so the result drops into the same grid).  The model takes any number of tags (``num_frames``).
+        """
+        from .tensor_utils import seed_everything
+
+        if self.pipeline is None:
+            self.load()
+        progress = progress or (lambda *a: None)
+        seed_everything(seed)
+        body = [t for t in BODY_TAGS if t in tags and t != "head"]
+        head = [t for t in HEAD_TAGS if t in tags]
+        if head and head_square is None:
+            raise ValueError("this job has no head square; head layers cannot be regenerated")
+        total = (1 if body else 0) + (1 if head else 0)
+        done = 0
+        out: Dict[str, np.ndarray] = {}
+        if body:
+            fullpage = center_square_pad_resize(rgba, resolution, return_pad_info=True)[0]
+            base = done / total
+            imgs = self._run_pass(body, fullpage, 0, seed, steps,
+                                  lambda i, n: progress("body", base + i / n / total, f"몸 레이어 {len(body)}개 생성 중 ({i}/{n})"))
+            out.update(zip(body, imgs))
+            done += 1
+        if head:
+            base = done / total
+            imgs = self._run_pass(head, head_input(rgba, head_square, resolution), 1, seed, steps,
+                                  lambda i, n: progress("head", base + i / n / total, f"머리 레이어 {len(head)}개 생성 중 ({i}/{n})"))
+            out.update(zip(head, imgs))
+        progress("done", 1.0, "생성 완료")
+        return out
+
     def run(self, rgba: np.ndarray, resolution: int = 1280, steps: int = 30, seed: int = 42,
             progress: Optional[ProgressFn] = None) -> DecomposeResult:
         """Decompose ``rgba`` (HxWx4 uint8) into layers.
@@ -181,6 +217,24 @@ class Decomposer:
         result.timings = {"body_s": t_body, "head_s": t_head, "total_s": time.time() - t_start}
         progress("done", 1.0, "decomposition finished")
         return result
+
+
+def head_input(rgba: np.ndarray, head_square: Tuple[float, float, float], resolution: int) -> np.ndarray:
+    """The source seen through a known head square (canvas px), enlarged to the model resolution - the same
+    framing the first run used (``rgba`` is the original source; transparent where the square leaves it)."""
+    _, pad_size, pad_pos = center_square_pad_resize(rgba, resolution, return_pad_info=True)
+    x0, y0, side = head_square
+    k = pad_size[0] / resolution            # source px per canvas px
+    t = side / resolution                   # canvas px per head-grid px
+    f = rgba.astype(np.float32) / 255.0
+    f[..., :3] *= f[..., 3:4]
+    # head-grid (u, v) -> source px:  ((x0 + u t) k - pad_x, (y0 + v t) k - pad_y)
+    M = np.array([[t * k, 0, x0 * k - pad_pos[0]], [0, t * k, y0 * k - pad_pos[1]]], np.float32)
+    out = cv2.warpAffine(f, M, (resolution, resolution), flags=cv2.INTER_CUBIC | cv2.WARP_INVERSE_MAP,
+                         borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+    a = np.clip(out[..., 3:4], 0, 1)
+    rgb = np.where(a > 1e-4, out[..., :3] / np.maximum(a, 1e-4), 0)
+    return (np.clip(np.concatenate([rgb, a], -1), 0, 1) * 255 + 0.5).astype(np.uint8)
 
 
 def head_to_canvas(img: np.ndarray, head_square: Tuple[float, float, float], resolution: int) -> np.ndarray:

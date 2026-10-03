@@ -27,6 +27,7 @@ class Settings:
     min_side: int = field(default_factory=lambda: _i("IMG2LIVE_MIN_SIDE", 256))
     max_queue: int = field(default_factory=lambda: _i("IMG2LIVE_MAX_QUEUE", 8))
     per_ip_per_day: int = field(default_factory=lambda: _i("IMG2LIVE_PER_IP_PER_DAY", 3))
+    regen_per_ip_per_day: int = field(default_factory=lambda: _i("IMG2LIVE_REGEN_PER_IP_PER_DAY", 20))
     retention_hours: float = field(default_factory=lambda: _f("IMG2LIVE_RETENTION_HOURS", 24 * 365))
     # --- access
     access_code: str = field(default_factory=lambda: os.environ.get("IMG2LIVE_ACCESS_CODE", ""))

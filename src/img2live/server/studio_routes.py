@@ -18,7 +18,8 @@ MAX_BODY = 12 * 1024 * 1024
 IMG_CACHE = {"Cache-Control": "private, max-age=3600"}
 
 
-def register(app: FastAPI, cfg, db) -> None:
+def register(app: FastAPI, cfg, db, helpers: dict) -> None:
+    is_admin, client_ip, ip_hash, worker_status = (helpers[k] for k in ("is_admin", "client_ip", "ip_hash", "worker_status"))
     def job_of(job_id: str) -> dict:
         if not JOB_ID_RE.match(job_id):
             raise HTTPException(404, "not found")
@@ -34,7 +35,7 @@ def register(app: FastAPI, cfg, db) -> None:
         j = job_of(job_id)
 
         def go():
-            with job_lock(job_id):
+            with job_lock(job_id, cfg.jobs_dir / job_id):
                 st = Studio(cfg.jobs_dir / job_id, job_id)
                 return fn(st, j)
 
@@ -55,9 +56,19 @@ def register(app: FastAPI, cfg, db) -> None:
             raise HTTPException(400, "object required")
         return d
 
+    def task_view(t: dict) -> dict:
+        p = t.get("params_json") or {}
+        r = t.get("result_json") or {}
+        return {"id": t["id"], "kind": t["kind"], "status": t["status"], "progress": t["progress"], "message": t["message"],
+                "tags": p.get("tags", []), "seed": r.get("seed") or p.get("seed"), "steps": p.get("steps"),
+                "created_at": t["created_at"], "finished_at": t["finished_at"], "error": t["error"], "result": r or None}
+
     def answer(st: Studio) -> dict:
         v = st.view()
         v["dirty"] = bool(st.state().get("dirty"))
+        v["tasks"] = [task_view(t) for t in db.tasks_for_job(st.job_id)]
+        w = worker_status()
+        v["can_regen"] = bool(w.get("alive"))
         return v
 
     @app.get("/api/jobs/{job_id}/studio")
@@ -144,6 +155,33 @@ def register(app: FastAPI, cfg, db) -> None:
 
     @app.post("/api/jobs/{job_id}/studio/regen")
     async def studio_regen(job_id: str, request: Request):
-        await body(request)
-        job_of(job_id)
-        raise HTTPException(501, "다시 생성은 아직 준비 중입니다. (Regeneration is not available yet.)")
+        """Ask the GPU worker to run the model again for some layers; the results arrive as candidates."""
+        payload = await body(request)
+        j = job_of(job_id)
+        from ..studio.labels import LABELS
+        tags = payload.get("tags")
+        if not isinstance(tags, list) or not tags or not all(isinstance(t, str) and t in LABELS for t in tags):
+            raise HTTPException(400, "다시 생성할 레이어를 골라 주세요.")
+        tags = list(dict.fromkeys(tags))
+        if not worker_status().get("alive"):
+            raise HTTPException(503, "GPU 작업기가 준비 중입니다. 잠시 후 다시 시도해 주세요. (The GPU worker is not ready yet.)")
+        admin = is_admin(request)
+        ih = ip_hash(client_ip(request))
+        if not admin:
+            import time as _t
+            if cfg.regen_per_ip_per_day > 0 and db.recent_tasks_by_ip(ih, _t.time() - 86400) >= cfg.regen_per_ip_per_day:
+                raise HTTPException(429, f"하루 {cfg.regen_per_ip_per_day}번까지 다시 생성할 수 있습니다. (Daily limit reached.)")
+            if db.active_tasks() >= cfg.max_queue:
+                raise HTTPException(429, "대기열이 가득 찼습니다. 잠시 후 다시 시도해 주세요. (The queue is full.)")
+        if db.active_tasks(job_id) >= 1:
+            raise HTTPException(409, "이 퍼펫은 이미 다시 생성 중입니다. 끝난 뒤 다시 눌러 주세요. (A regeneration is already running.)")
+        try:
+            seed = payload.get("seed")
+            seed = None if seed in (None, "", "auto") else int(seed) % (2**31)
+            steps = max(10, min(60, int(payload.get("steps") or cfg.steps)))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "시드와 스텝은 숫자여야 합니다.")
+        import secrets as _s
+        tid = _s.token_urlsafe(10)
+        db.create_task(tid, job_id, {"tags": tags, "seed": seed, "steps": steps}, ih)
+        return {"ok": True, "task": task_view(db.get_task(tid))}

@@ -32,9 +32,28 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_ip ON jobs(ip_hash, created_at);
+
+-- partial regeneration of a finished job's layers (studio); processed by the same GPU worker
+CREATE TABLE IF NOT EXISTS studio_tasks (
+  id TEXT PRIMARY KEY,
+  job_id TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'regen',
+  params_json TEXT,
+  status TEXT NOT NULL,            -- queued | running | done | failed
+  progress REAL NOT NULL DEFAULT 0,
+  message TEXT NOT NULL DEFAULT '',
+  created_at REAL NOT NULL,
+  started_at REAL,
+  finished_at REAL,
+  ip_hash TEXT NOT NULL DEFAULT '',
+  result_json TEXT,
+  error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_tasks_job ON studio_tasks(job_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON studio_tasks(status, created_at);
 """
 
-JSON_COLS = ("gate_json", "timings_json", "result_json")
+JSON_COLS = ("gate_json", "timings_json", "result_json", "params_json")
 
 
 def new_job_id() -> str:
@@ -132,6 +151,7 @@ class DB:
         with self._conn() as c:
             c.execute("UPDATE jobs SET status='deleted', updated_at=?, prompt='', ip_hash='', gate_json=NULL WHERE id=?",
                       (time.time(), job_id))
+            c.execute("DELETE FROM studio_tasks WHERE job_id=?", (job_id,))
 
     def recent_durations(self, n: int = 5) -> List[float]:
         with self._conn() as c:
@@ -174,3 +194,56 @@ class DB:
             rows = c.execute("SELECT id FROM jobs WHERE status IN ('done','failed') AND delete_after<?",
                              (time.time(),)).fetchall()
         return [r["id"] for r in rows]
+
+    # -------------------------------------------------------------- studio tasks
+    def create_task(self, task_id: str, job_id: str, params: dict, ip_hash: str = "", kind: str = "regen") -> None:
+        with self._conn() as c:
+            c.execute("INSERT INTO studio_tasks(id,job_id,kind,params_json,status,created_at,ip_hash) VALUES(?,?,?,?,?,?,?)",
+                      (task_id, job_id, kind, json.dumps(params, ensure_ascii=False), "queued", time.time(), ip_hash))
+
+    def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
+        with self._conn() as c:
+            return self._row(c.execute("SELECT * FROM studio_tasks WHERE id=?", (task_id,)).fetchone())
+
+    def tasks_for_job(self, job_id: str, recent: int = 6) -> List[Dict[str, Any]]:
+        """Active tasks plus the last few finished ones, newest first."""
+        with self._conn() as c:
+            rows = c.execute("SELECT * FROM studio_tasks WHERE job_id=? ORDER BY created_at DESC LIMIT ?", (job_id, recent)).fetchall()
+        return [self._row(r) for r in rows]
+
+    def active_tasks(self, job_id: Optional[str] = None) -> int:
+        with self._conn() as c:
+            if job_id:
+                return int(c.execute("SELECT COUNT(*) FROM studio_tasks WHERE job_id=? AND status IN ('queued','running')", (job_id,)).fetchone()[0])
+            return int(c.execute("SELECT COUNT(*) FROM studio_tasks WHERE status IN ('queued','running')").fetchone()[0])
+
+    def recent_tasks_by_ip(self, ip_hash: str, since: float) -> int:
+        with self._conn() as c:
+            return int(c.execute("SELECT COUNT(*) FROM studio_tasks WHERE ip_hash=? AND created_at>=?", (ip_hash, since)).fetchone()[0])
+
+    def claim_next_task(self) -> Optional[Dict[str, Any]]:
+        with self._conn() as c:
+            c.execute("BEGIN IMMEDIATE")
+            r = c.execute("SELECT id FROM studio_tasks WHERE status='queued' ORDER BY created_at LIMIT 1").fetchone()
+            if r is None:
+                c.execute("COMMIT")
+                return None
+            c.execute("UPDATE studio_tasks SET status='running', started_at=?, progress=0 WHERE id=?", (time.time(), r["id"]))
+            c.execute("COMMIT")
+            return self._row(c.execute("SELECT * FROM studio_tasks WHERE id=?", (r["id"],)).fetchone())
+
+    def update_task(self, task_id: str, **fields) -> None:
+        for k in ("params_json", "result_json"):
+            if k in fields and not isinstance(fields[k], (str, type(None))):
+                fields[k] = json.dumps(fields[k], ensure_ascii=False)
+        cols = ", ".join(f"{k}=?" for k in fields)
+        with self._conn() as c:
+            c.execute(f"UPDATE studio_tasks SET {cols} WHERE id=?", (*fields.values(), task_id))
+
+    def requeue_stale_tasks(self) -> int:
+        with self._conn() as c:
+            return c.execute("UPDATE studio_tasks SET status='queued', progress=0, message='worker restarted' WHERE status='running'").rowcount
+
+    def delete_tasks_of(self, job_id: str) -> None:
+        with self._conn() as c:
+            c.execute("DELETE FROM studio_tasks WHERE job_id=?", (job_id,))

@@ -18,9 +18,40 @@ _LOCKS: Dict[str, threading.RLock] = {}
 _LOCKS_GUARD = threading.Lock()
 
 
-def job_lock(job_id: str) -> threading.RLock:
+class _JobLock:
+    """A thread lock plus a file lock: the API process and the GPU worker both write the same job's studio files."""
+
+    def __init__(self, rlock: threading.RLock, path: Optional[Path]):
+        self.rlock, self.path, self.fh, self.depth = rlock, path, None, 0
+
+    def __enter__(self):
+        self.rlock.acquire()
+        self.depth += 1
+        if self.path is not None and self.depth == 1:
+            import fcntl
+
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.fh = open(self.path, "a")
+            fcntl.flock(self.fh, fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, *exc):
+        if self.path is not None and self.depth == 1 and self.fh is not None:
+            import fcntl
+
+            fcntl.flock(self.fh, fcntl.LOCK_UN)
+            self.fh.close()
+            self.fh = None
+        self.depth -= 1
+        self.rlock.release()
+
+
+def job_lock(job_id: str, jdir: Optional[Path] = None) -> _JobLock:
     with _LOCKS_GUARD:
-        return _LOCKS.setdefault(job_id, threading.RLock())
+        entry = _LOCKS.setdefault(job_id, _JobLock(threading.RLock(), None))
+        if jdir is not None and entry.path is None:
+            entry.path = jdir / ".studio.lock"
+        return entry
 
 
 class StudioError(Exception):

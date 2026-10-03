@@ -16,6 +16,7 @@ import time
 from ..config import get_settings
 from ..db import DB
 from .pipeline import JobError, fail_job, process_job
+from .regen import process_regen
 
 log = logging.getLogger("img2live.worker")
 
@@ -90,8 +91,29 @@ def main() -> int:
     n = db.requeue_stale()
     if n:
         log.warning("requeued %d jobs left running by a previous worker", n)
+    n = db.requeue_stale_tasks()
+    if n:
+        log.warning("requeued %d studio tasks left running by a previous worker", n)
     last_clean = 0.0
     while not state["stop"]:
+        task = db.claim_next_task()  # a layer regeneration is short and someone is watching it: it goes first
+        if task is not None:
+            state["busy"] = "task " + task["id"]
+            log.info("studio task %s started (job %s)", task["id"], task["job_id"])
+            try:
+                process_regen(task, cfg, db, engine)
+            except Exception as e:  # noqa: BLE001
+                log.exception("studio task %s failed", task["id"])
+                db.update_task(task["id"], status="failed", error=f"다시 생성하지 못했습니다: {str(e)[:300]}", finished_at=time.time())
+                if "CUDA" in repr(e) or "cuda" in repr(e) or "out of memory" in repr(e).lower():
+                    state["error"] = "CUDA error; restarting worker"
+                    state["stop"] = True
+                    time.sleep(1)
+                    return 3
+            finally:
+                state["busy"] = None
+                release_gpu_cache()
+            continue
         job = db.claim_next()
         if job is None:
             if time.time() - last_clean > 600:
