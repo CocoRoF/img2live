@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -82,6 +82,8 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         resp = await call_next(request)
         for k, v in SECURITY_HEADERS.items():
             resp.headers.setdefault(k, v)
+        if request.url.path.startswith("/static/"):
+            resp.headers["Cache-Control"] = "no-cache"  # revalidate (ETag): a CDN must not keep serving an old script or style
         return resp
 
     # ------------------------------------------------------------------ helpers
@@ -143,9 +145,28 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         return out
 
     # ------------------------------------------------------------------ pages
+    asset_hash: dict = {}  # path -> (mtime, digest)
+
+    def versioned(name: str) -> str:
+        """The page with every /static asset URL carrying a hash of that file, so a CDN or browser cache cannot serve a stale copy."""
+        def tag(m):
+            path = m.group(2)
+            f = STATIC_DIR / path[len("/static/"):]
+            try:
+                mt = f.stat().st_mtime
+                if asset_hash.get(path, (0,))[0] != mt:
+                    asset_hash[path] = (mt, hashlib.sha1(f.read_bytes()).hexdigest()[:10])
+                return f"{m.group(1)}{path}?v={asset_hash[path][1]}{m.group(3)}"
+            except OSError:
+                return m.group(0)
+        return re.sub(r'((?:src|href)=")(/static/[^"?#]+)(")', tag, (STATIC_DIR / name).read_text(encoding="utf-8"))
+
+    def html(name: str) -> HTMLResponse:
+        return HTMLResponse(versioned(name), headers={"Cache-Control": "no-cache, no-transform"})
+
     def page(name: str):
         async def _p():
-            return FileResponse(STATIC_DIR / name, media_type="text/html; charset=utf-8", headers={"Cache-Control": "no-cache, no-transform"})
+            return html(name)
         return _p
 
     app.get("/", include_in_schema=False)(page("index.html"))
@@ -155,7 +176,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     async def job_page(job_id: str):
         if not JOB_ID_RE.match(job_id):
             raise HTTPException(404)
-        return FileResponse(STATIC_DIR / "job.html", media_type="text/html; charset=utf-8", headers={"Cache-Control": "no-cache, no-transform"})
+        return html("job.html")
 
     FAVICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#5b4bdb"/>'
                '<circle cx="32" cy="27" r="13" fill="#fff"/><circle cx="27" cy="26" r="2.6" fill="#5b4bdb"/><circle cx="37" cy="26" r="2.6" fill="#5b4bdb"/>'
@@ -267,7 +288,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     @app.get("/admin", include_in_schema=False)
     async def admin_page():
         # the page itself is public (it shows a hint when not signed in); its data endpoints are not
-        return FileResponse(STATIC_DIR / "admin.html", media_type="text/html; charset=utf-8", headers={"Cache-Control": "no-cache, no-transform"})
+        return html("admin.html")
 
     @app.post("/api/parse-prompt")
     async def parse(prompt: str = Form("")):

@@ -274,3 +274,25 @@ def test_admin_can_list_every_job_and_preview_it_visitors_cannot(env):
     assert [j["id"] for j in client.get("/api/admin/jobs").json()["items"]] == [b, a]
     # the page itself is served to everyone but is not for crawlers
     assert client.get("/admin").status_code == 200 and "Disallow: /admin" in client.get("/robots.txt").text
+
+
+def test_pages_version_their_assets_and_static_files_revalidate(env):
+    """A CDN once kept serving an old stylesheet after a deploy: asset URLs now carry a content hash."""
+    cfg, app, client = env
+    for path in ("/", "/terms", "/admin", "/j/" + "a" * 22):
+        h = client.get(path).text
+        refs = __import__("re").findall(r'(?:src|href)="(/static/[^"]+)"', h)
+        assert refs and all("?v=" in r and len(r.split("?v=")[1]) == 10 for r in refs), (path, refs)
+    css = [r for r in __import__("re").findall(r'href="(/static/css/app\.css\?v=\w+)"', client.get("/").text)][0]
+    r = client.get(css)
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-cache" and r.headers.get("etag")
+    assert client.get("/static/css/app.css", headers={"If-None-Match": r.headers["etag"]}).status_code == 304
+    # the hash follows the content
+    a = client.get("/").text
+    css_file = Path(__import__("img2live.server.app", fromlist=["x"]).STATIC_DIR) / "css" / "app.css"
+    old = css_file.read_bytes()
+    try:
+        css_file.write_bytes(old + b"\n/* changed */\n")
+        assert client.get("/").text != a
+    finally:
+        css_file.write_bytes(old)
