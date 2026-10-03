@@ -353,7 +353,9 @@ export function createInspector(container, deps) {
       el("div", { class: "in-task-top" }, el("span", { class: "in-task-title", text: title }), el("span", { class: `pill ${tone}`, text: stLabel })),
       applyAll,
       (st === "failed" || st === "done") ? null : el("div", { class: "progress", role: "progressbar", "aria-label": `${title} 진행률`, "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(Math.round(p * 100)) }, el("i", { style: `width:${Math.round(p * 100)}%` })),
-      (t.error || t.message) ? el("p", { class: `small ${st === "failed" ? "bad-text" : "muted"}`, text: t.error || t.message }) : null);
+      (t.error || t.message) ? el("p", { class: `small ${st === "failed" ? "bad-text" : "muted"}`, text: t.error || t.message }) : null,
+      st === "done" && t.result && t.result.dropped && t.result.dropped.length
+        ? el("p", { class: "small muted", text: `모델이 배경을 섞어 만든 레이어는 후보에서 뺐습니다: ${t.result.dropped.map((x) => labelOf(x)).join(", ")}` }) : null);
   }
 
   function versionItem(l, v) {

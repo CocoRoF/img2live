@@ -104,7 +104,7 @@ def main() -> int:
                 process_regen(task, cfg, db, engine)
             except Exception as e:  # noqa: BLE001
                 log.exception("studio task %s failed", task["id"])
-                db.update_task(task["id"], status="failed", error=f"다시 생성하지 못했습니다: {str(e)[:300]}", finished_at=time.time())
+                db.update_task(task["id"], status="failed", error="다시 생성하지 못했습니다. 잠시 후 다시 시도해 주세요.", finished_at=time.time())  # details stay in the log, not on the page
                 if "CUDA" in repr(e) or "cuda" in repr(e) or "out of memory" in repr(e).lower():
                     state["error"] = "CUDA error; restarting worker"
                     state["stop"] = True

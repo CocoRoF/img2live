@@ -81,6 +81,29 @@ def test_a_body_only_request_does_not_run_the_head_group(fresh):
     assert "topwear" in tags and "face" not in tags and "eyelash" not in tags     # body group only
 
 
+class LeakyEngine(FakeDecomposer):
+    """The model's known failure: one layer (legwear) comes back as the whole picture."""
+
+    def regen(self, *a, **k):
+        out = super().regen(*a, **k)
+        out["legwear"] = np.full_like(out["legwear"], (170, 170, 170, 255))
+        return out
+
+
+def test_a_leaked_layer_is_not_offered_as_a_candidate(fresh):
+    cfg, app, client, jid = fresh
+    assert client.post(f"/api/jobs/{jid}/studio/regen", json={"tags": ["footwear"], "seed": 9}).status_code == 200
+    task = app.state.db.claim_next_task()
+    eng = LeakyEngine(); eng.load()
+    process_regen(task, cfg, app.state.db, eng)
+    s = client.get(f"/api/jobs/{jid}/studio").json()
+    res = s["tasks"][0]["result"]
+    assert res["dropped"] == ["legwear"]
+    assert "legwear" not in {v["tag"] for v in res["versions"]}
+    assert [v["kind"] for v in L(s, "legwear")["versions"]] == ["original"]            # nothing was stored for it
+    assert "footwear" in {v["tag"] for v in res["versions"]} and "topwear" in {v["tag"] for v in res["versions"]}   # the rest is fine
+
+
 def test_regen_input_checks_limits_and_admin(fresh):
     cfg, app, client, jid = fresh
     post = lambda **p: client.post(f"/api/jobs/{jid}/studio/regen", json=p)

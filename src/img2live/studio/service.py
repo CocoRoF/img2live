@@ -50,8 +50,13 @@ def as_result(st: Studio, only_enabled: bool = False):
         size = Image.open(st.jdir / "source.png").size
     except Exception:  # noqa: BLE001
         size = (st.n, st.n)
+    full = st.source("canvas")
+    # where the real source sits inside the (transparently padded) square canvas: the silhouette is estimated there only,
+    # otherwise the padding reads as "transparent source" and the whole picture rectangle counts as character
+    ys, xs = np.where(full[..., 3] >= 250)
+    box = (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1) if len(xs) else (0, 0, st.n, st.n)
     return DecomposeResult(canvas=st.n, source_size=tuple(size), layers=layers, head_hires=hires, head_square=st.head_square,
-                           fullpage=st.source("canvas"), source_box=(0, 0, st.n, st.n))
+                           fullpage=full, source_box=box)
 
 
 # ------------------------------------------------------------------ rebuild
