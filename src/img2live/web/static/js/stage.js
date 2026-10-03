@@ -56,6 +56,116 @@ function boundaryLoops(m) {
   return loops;
 }
 
+/**
+ * Silhouette of a layer from its texture alpha: marching squares with linear interpolation on a coarse grid, giving closed
+ * polylines (outer edges and holes) in UV space.  The grid step keeps every outline at a few hundred points.
+ */
+function alphaContours(plane, thr = HIT_ALPHA) {
+  const { w, h, data } = plane;
+  const s = Math.max(1, Math.round(Math.max(w, h) / 200));
+  const gw = Math.ceil(w / s) + 2, gh = Math.ceil(h / s) + 2; // a zero border round the texture closes every contour
+  const g = new Float32Array(gw * gh);
+  for (let j = 1; j < gh - 1; j++) {
+    const y = Math.min(h - 1, Math.floor((j - 1) * s + s / 2));
+    for (let i = 1; i < gw - 1; i++) g[j * gw + i] = data[y * w + Math.min(w - 1, Math.floor((i - 1) * s + s / 2))];
+  }
+  // edge ids: horizontal edge (i,j)-(i+1,j) = 2*(j*gw+i), vertical edge (i,j)-(i,j+1) = 2*(j*gw+i)+1
+  const adj = new Map();
+  const link = (a, b) => {
+    (adj.get(a) || adj.set(a, []).get(a)).push(b);
+    (adj.get(b) || adj.set(b, []).get(b)).push(a);
+  };
+  const CASES = [[], [["L", "B"]], [["B", "R"]], [["L", "R"]], [["T", "R"]], [["T", "R"], ["L", "B"]], [["T", "B"]], [["T", "L"]],
+    [["T", "L"]], [["T", "B"]], [["T", "L"], ["B", "R"]], [["T", "R"]], [["L", "R"]], [["B", "R"]], [["L", "B"]], []];
+  for (let j = 0; j < gh - 1; j++) {
+    for (let i = 0; i < gw - 1; i++) {
+      const v = j * gw + i;
+      const c = (g[v] > thr ? 8 : 0) | (g[v + 1] > thr ? 4 : 0) | (g[v + gw + 1] > thr ? 2 : 0) | (g[v + gw] > thr ? 1 : 0);
+      if (c === 0 || c === 15) continue;
+      const id = { T: 2 * v, B: 2 * (v + gw), L: 2 * v + 1, R: 2 * (v + 1) + 1 };
+      for (const [a, b] of CASES[c]) link(id[a], id[b]);
+    }
+  }
+  const at = (key) => { // crossing point of an edge, in texel coordinates
+    const vid = key >> 1;
+    const i = vid % gw, j = (vid - i) / gw;
+    const px = (i - 1) * s + s / 2, py = (j - 1) * s + s / 2;
+    const vert = key & 1;
+    const a0 = g[vid], a1 = g[vid + (vert ? gw : 1)];
+    const t = a1 === a0 ? 0.5 : Math.max(0, Math.min(1, (thr - a0) / (a1 - a0)));
+    return vert ? [px, py + t * s] : [px + t * s, py];
+  };
+  const loops = [];
+  const seen = new Set();
+  for (const start of adj.keys()) {
+    if (seen.has(start)) continue;
+    const keys = [];
+    let prev = -1, cur = start;
+    for (;;) {
+      seen.add(cur);
+      keys.push(cur);
+      const nb = adj.get(cur);
+      const nxt = nb[0] === prev && nb.length > 1 ? nb[1] : nb[0];
+      if (nxt === undefined || nxt === start || seen.has(nxt)) break;
+      prev = cur;
+      cur = nxt;
+    }
+    if (keys.length < 4) continue; // a speck
+    const uv = new Float32Array(keys.length * 2);
+    keys.forEach((k, n) => { const [x, y] = at(k); uv[2 * n] = x / w; uv[2 * n + 1] = y / h; });
+    loops.push(uv);
+  }
+  return loops;
+}
+
+/** For each outline point (UV) find the mesh triangle that holds it (nearest one when it falls just outside) and its barycentric weights. */
+function bindLoops(m, loops) {
+  const PAD = 0.04;
+  const uvs = m.uvs, idx = m.indices, nt = idx.length / 3;
+  const bb = new Float32Array(nt * 4);
+  for (let t = 0; t < nt; t++) {
+    const a = idx[3 * t] * 2, b = idx[3 * t + 1] * 2, c = idx[3 * t + 2] * 2;
+    bb[4 * t] = Math.min(uvs[a], uvs[b], uvs[c]); bb[4 * t + 1] = Math.min(uvs[a + 1], uvs[b + 1], uvs[c + 1]);
+    bb[4 * t + 2] = Math.max(uvs[a], uvs[b], uvs[c]); bb[4 * t + 3] = Math.max(uvs[a + 1], uvs[b + 1], uvs[c + 1]);
+  }
+  return loops.map((lp) => {
+    const n = lp.length / 2;
+    const tri = new Int32Array(n), wt = new Float32Array(n * 3);
+    for (let p = 0; p < n; p++) {
+      const u = lp[2 * p], v = lp[2 * p + 1];
+      let best = -1, bestViol = Infinity, b0 = 0, b1 = 0, b2 = 0;
+      for (let t = 0; t < nt; t++) {
+        const pad = best < 0 ? PAD : bestViol < 0.002 ? 0 : 0.02; // search near the point first, widen only when nothing is close
+        if (u < bb[4 * t] - pad || u > bb[4 * t + 2] + pad || v < bb[4 * t + 1] - pad || v > bb[4 * t + 3] + pad) continue;
+        const a = idx[3 * t] * 2, b = idx[3 * t + 1] * 2, c = idx[3 * t + 2] * 2;
+        const ax = uvs[a], ay = uvs[a + 1], bx = uvs[b], by = uvs[b + 1], cx = uvs[c], cy = uvs[c + 1];
+        const d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
+        if (Math.abs(d) < 1e-14) continue;
+        const l0 = ((by - cy) * (u - cx) + (cx - bx) * (v - cy)) / d;
+        const l1 = ((cy - ay) * (u - cx) + (ax - cx) * (v - cy)) / d;
+        const l2 = 1 - l0 - l1;
+        const viol = Math.max(0, -Math.min(l0, l1, l2));
+        if (viol < bestViol) { bestViol = viol; best = t; b0 = l0; b1 = l1; b2 = l2; if (viol === 0) break; }
+      }
+      if (best < 0) { // nothing near: take the closest triangle by brute force (weights extrapolate)
+        for (let t = 0; t < nt; t++) {
+          const a = idx[3 * t] * 2, b = idx[3 * t + 1] * 2, c = idx[3 * t + 2] * 2;
+          const cx0 = (uvs[a] + uvs[b] + uvs[c]) / 3, cy0 = (uvs[a + 1] + uvs[b + 1] + uvs[c + 1]) / 3;
+          const dist = (cx0 - u) ** 2 + (cy0 - v) ** 2;
+          if (dist < bestViol) { bestViol = dist; best = t; }
+        }
+        const t = best, a = idx[3 * t] * 2, b = idx[3 * t + 1] * 2, c = idx[3 * t + 2] * 2;
+        const ax = uvs[a], ay = uvs[a + 1], bx = uvs[b], by = uvs[b + 1], cx = uvs[c], cy = uvs[c + 1];
+        const d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy) || 1e-9;
+        b0 = ((by - cy) * (u - cx) + (cx - bx) * (v - cy)) / d; b1 = ((cy - ay) * (u - cx) + (ax - cx) * (v - cy)) / d; b2 = 1 - b0 - b1;
+      }
+      tri[p] = Math.max(best, 0);
+      wt[3 * p] = b0; wt[3 * p + 1] = b1; wt[3 * p + 2] = b2;
+    }
+    return { tri, wt };
+  });
+}
+
 export function createStage(container, opts = {}) {
   if (!(container instanceof Element)) throw new TypeError("createStage: container must be a DOM element");
   const { onPick = null, onReady = null, onError = null, initial = {} } = opts;
@@ -73,6 +183,7 @@ export function createStage(container, opts = {}) {
     options: { idle: initial.idle, blink: initial.blink, physics: initial.physics, follow: initial.follow ?? false }, // undefined = puppet default
     seed: initial.seed ?? 1,
     camera: initial.camera || "fit",
+    insets: { top: 0, right: 0, bottom: 0, left: 0, ...(opts.insets || {}) }, // floating UI over the canvas: fit / head framing avoids it
   };
 
   // ---- DOM
@@ -100,6 +211,8 @@ export function createStage(container, opts = {}) {
   let hoverReq = null;
   let urlNow = opts.puppetUrl || "";
   let firstReady = false;
+  let readyResolve, readyReject;
+  const readyPromise = new Promise((res, rej) => { readyResolve = res; readyReject = rej; });
 
   // ===================================================================================== build / swap
   function makeCanvas() {
@@ -160,6 +273,7 @@ export function createStage(container, opts = {}) {
 
   function applyView(i) {
     const r = i.renderer;
+    r.insets = { ...view.insets };
     r.setBackground(view.background);
     r.setWireframe(view.wireframe);
     syncVisibility(i);
@@ -229,6 +343,7 @@ export function createStage(container, opts = {}) {
         if (first || !inst) { note.hidden = true; showBanner(msg); } else bus.emit("warn", msg);
         bus.emit("error", err);
         if (onError) onError(err);
+        if (!firstReady) readyReject(err);
       }
       throw err;
     }
@@ -237,8 +352,10 @@ export function createStage(container, opts = {}) {
     activate(next, prev, keepParams);
     urlNow = url;
     bus.emit("busy", false);
-    bus.emit(first ? "ready" : "reload", api);
-    if (first) { firstReady = true; if (onReady) onReady(api); }
+    const wasFirst = !firstReady; // (a first load that a quicker reload overtook is "ready" when the reload lands)
+    firstReady = true;
+    bus.emit(wasFirst ? "ready" : "reload", api);
+    if (wasFirst) { readyResolve(api); if (onReady) onReady(api); }
     if (!raf && !paused) { last = performance.now(); raf = requestAnimationFrame(frame); }
   }
 
@@ -346,6 +463,20 @@ export function createStage(container, opts = {}) {
     if (view.highlight) outlineTag(i, view.highlight, false);
   }
 
+  /** Outline loops of mesh k, built once: from the texture alpha when it is readable, else from the mesh boundary edges. */
+  function silhouette(i, k) {
+    let sil = i.loops[k];
+    if (sil) return sil;
+    const plane = alphaPlane(i, k);
+    const m = i.model.meshes[k];
+    if (plane) {
+      try { sil = { alpha: true, loops: bindLoops(m, alphaContours(plane)) }; } catch (e) { console.warn("stage: outline from alpha failed", e); }
+    }
+    if (!sil) sil = { alpha: false, loops: boundaryLoops(m) };
+    i.loops[k] = sil;
+    return sil;
+  }
+
   function outlineTag(i, tag, light) {
     const L = i.layers.find((x) => x.tag === tag);
     if (!L) return;
@@ -354,15 +485,29 @@ export function createStage(container, opts = {}) {
     ctx.beginPath();
     for (const k of L.index) {
       if (!r.isShown(k) || i.model.opacityOf(k, i.ctrl.values) <= 0.001) continue;
-      const loops = (i.loops[k] ||= boundaryLoops(i.model.meshes[k]));
+      const sil = silhouette(i, k);
       const pos = r.g[k].pos;
-      for (const loop of loops) {
-        for (let p = 0; p < loop.length; p++) {
-          const v = loop[p] * 2;
-          const x = (pos[v] - cam.cx) * z + hw, y = (pos[v + 1] - cam.cy) * z + hh;
-          if (p === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      if (sil.alpha) {
+        const idx = i.model.meshes[k].indices;
+        for (const { tri, wt } of sil.loops) { // each point rides on its triangle, so the outline follows the deformation
+          for (let p = 0; p < tri.length; p++) {
+            const t = tri[p] * 3, a = idx[t] * 2, b = idx[t + 1] * 2, c = idx[t + 2] * 2;
+            const wx = wt[3 * p] * pos[a] + wt[3 * p + 1] * pos[b] + wt[3 * p + 2] * pos[c];
+            const wy = wt[3 * p] * pos[a + 1] + wt[3 * p + 1] * pos[b + 1] + wt[3 * p + 2] * pos[c + 1];
+            const x = (wx - cam.cx) * z + hw, y = (wy - cam.cy) * z + hh;
+            if (p === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+          }
+          ctx.closePath();
         }
-        ctx.closePath();
+      } else {
+        for (const loop of sil.loops) {
+          for (let p = 0; p < loop.length; p++) {
+            const v = loop[p] * 2;
+            const x = (pos[v] - cam.cx) * z + hw, y = (pos[v + 1] - cam.cy) * z + hh;
+            if (p === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+          }
+          ctx.closePath();
+        }
       }
     }
     ctx.fillStyle = light ? OUTLINE.hoverFill : OUTLINE.fill;
@@ -563,6 +708,14 @@ export function createStage(container, opts = {}) {
     get background() { return view.background; },
     backgrounds: BACKGROUNDS,
     setCamera(mode) { if (inst) { inst.renderer.setCamera(mode); bus.emit("camera", cameraInfo()); } },
+    /** Keep the fit / head framing clear of floating UI: {top, right, bottom, left} in CSS px. */
+    setInsets(ins) {
+      view.insets = { top: 0, right: 0, bottom: 0, left: 0, ...ins };
+      if (!inst) return;
+      inst.renderer.insets = { ...view.insets };
+      if (inst.renderer.cameraMode !== "custom") inst.renderer.setCamera(inst.renderer.cameraMode);
+      else inst.renderer.dirty = true;
+    },
     resetCamera() { if (inst) { inst.renderer.resetCamera(); bus.emit("camera", cameraInfo()); } },
     get camera() { return cameraInfo(); },
     /** PNG of the current view (transparent on the checkerboard). */
@@ -598,9 +751,8 @@ export function createStage(container, opts = {}) {
     },
   };
 
-  api.ready = opts.puppetUrl
-    ? load(opts.puppetUrl, { keepParams: false, first: true }).then(() => api)
-    : Promise.resolve(api);
+  api.ready = opts.puppetUrl ? readyPromise : Promise.resolve(api);
   api.ready.catch(() => {}); // errors are reported through onError / the banner; never an unhandled rejection
+  if (opts.puppetUrl) load(opts.puppetUrl, { keepParams: false, first: true }).catch(() => {});
   return api;
 }

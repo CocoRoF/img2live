@@ -40,6 +40,9 @@ export function studioApi(jobId) {
     deleteVersion: (tag, vid) => fetch(`${L(tag)}/version/${encodeURIComponent(vid)}`, { method: "DELETE" }).then(json),
     rebuild: () => post(`${base}/rebuild`),
     reset: () => post(`${base}/reset`),
+    /** Ask the GPU worker to run the model again for the group(s) of `tags` (a whole group per pass, ~3 min each). */
     regen: (payload) => post(`${base}/regen`, payload),
+    /** Apply the candidates of one finished regeneration together; tags (optional) limits which layers. */
+    applyTask: (taskId, tags) => post(`${base}/task/${encodeURIComponent(taskId)}/apply`, tags ? { tags } : {}),
   };
 }

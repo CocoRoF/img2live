@@ -13,6 +13,7 @@
  *     onEdit(tag),                 // [편집] -> the page opens the layer editor
  *     refreshState(),              // re-read GET /studio (after a regen request)
  *     deleteJob(),                 // DELETE the job and leave
+ *     onBusy(on),                  // a studio call is in flight (the page shows a chip: the server recompiles the puppet, 2-4 s)
  *   });
  *   insp.setState(state)  insp.setSelected(tag, { openTab })  insp.showTab(name)  insp.setDegraded(bool)
  */
@@ -58,7 +59,7 @@ function makeSwitch(label, { checked = false, onChange, title, disabled = false 
 }
 
 export function createInspector(container, deps) {
-  const { stage, api = null, job = {}, fileUrl = (p) => p, loadReport = async () => ({}), notify = () => {}, onState = async () => {}, onEdit = () => {}, refreshState = async () => {}, deleteJob = async () => {} } = deps;
+  const { stage, api = null, job = {}, fileUrl = (p) => p, loadReport = async () => ({}), notify = () => {}, onState = async () => {}, onEdit = () => {}, refreshState = async () => {}, deleteJob = async () => {}, onBusy = () => {} } = deps;
   const uidp = uid("in");
   let state = null;
   let selected = null;
@@ -80,7 +81,8 @@ export function createInspector(container, deps) {
     panels[key] = el("div", { class: "in-panel", role: "tabpanel", id: `${uidp}-p-${key}`, "aria-labelledby": b.id, tabindex: "0", hidden: true });
   }
   const panelBox = el("div", { class: "in-panels" }, ...Object.values(panels));
-  container.append(tabBar, panelBox);
+  const busyBar = el("div", { class: "in-busybar", role: "status", hidden: true }, el("span", { class: "st-spin", "aria-hidden": "true" }), el("span", { text: "적용하는 중… 퍼펫을 다시 만드는 데 몇 초 걸립니다." }));
+  container.append(tabBar, busyBar, panelBox);
   let tab = "motion";
   function showTab(name) {
     if (!panels[name]) return;
@@ -274,6 +276,8 @@ export function createInspector(container, deps) {
     busy = on;
     layerHost.classList.toggle("is-busy", on);
     layerHost.setAttribute("aria-busy", String(on));
+    busyBar.hidden = !on;
+    try { onBusy(on); } catch (e) { console.error(e); }
   }
 
   // ---- regen form (persistent element so typed values survive re-renders)
@@ -283,11 +287,6 @@ export function createInspector(container, deps) {
     const seedNum = el("input", { type: "number", class: "in-num", min: 0, max: 2147483647, step: 1, value: 42, disabled: true, "aria-label": "시드 값" });
     const steps = el("input", { type: "range", min: 20, max: 50, step: 1, value: 30, id: `${uidp}-steps` });
     const stepsOut = el("output", { for: steps.id, class: "in-value", text: "30" });
-    const margin = el("input", { type: "range", min: 0.05, max: 0.5, step: 0.01, value: 0.2, id: `${uidp}-margin` });
-    const marginOut = el("output", { for: margin.id, class: "in-value", text: "0.20" });
-    const headOnly = el("div", { class: "in-field", "data-head-only": "" },
-      el("div", { class: "in-field-top" }, el("label", { for: margin.id, text: "머리 크롭 여백" }), marginOut), margin,
-      el("p", { class: "small muted", text: "머리 장식이 잘리면 키우고, 얼굴 디테일을 더 얻으려면 줄입니다. 머리 부품 전체가 한꺼번에 바뀝니다." }));
     const intro = el("p", { class: "small muted" });
     const submit = el("button", { type: "submit", class: "btn primary small", "data-fk": "regen-submit" }, icon("refresh", 14), " 다시 생성 요청");
     const cancel = el("button", { type: "button", class: "btn small", text: "취소" });
@@ -299,13 +298,11 @@ export function createInspector(container, deps) {
           el("label", { class: "in-radio", for: seedAuto.id }, seedAuto, " 자동"),
           el("label", { class: "in-radio", for: seedManual.id }, seedManual, " 직접"), seedNum)),
       el("div", { class: "in-field" }, el("div", { class: "in-field-top" }, el("label", { for: steps.id, text: "스텝" }), stepsOut), steps),
-      headOnly,
       el("div", { class: "in-row" }, submit, cancel));
     const syncSeed = () => { seedNum.disabled = !seedManual.checked; };
     seedAuto.addEventListener("change", syncSeed);
     seedManual.addEventListener("change", () => { syncSeed(); if (seedManual.checked) seedNum.focus(); });
     steps.addEventListener("input", () => { stepsOut.textContent = steps.value; });
-    margin.addEventListener("input", () => { marginOut.textContent = Number(margin.value).toFixed(2); });
     cancel.addEventListener("click", () => { regenOpen = false; renderLayer(true); layerHost.querySelector('[data-fk="regen"]')?.focus(); });
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -313,15 +310,16 @@ export function createInspector(container, deps) {
       if (!l || !api) return;
       const body = { tags: [l.tag], steps: Number(steps.value) };
       if (seedManual.checked && Number.isFinite(parseInt(seedNum.value, 10))) body.seed = parseInt(seedNum.value, 10);
-      if (l.grid === "head") body.head_margin = Number(Number(margin.value).toFixed(2));
       const res = await act(() => api.regen(body));
-      if (res) { notify("다시 생성을 요청했습니다. 결과는 후보로 도착하며 자동으로 적용되지 않습니다.", "ok"); regenOpen = false; await refreshState(); renderLayer(true); }
+      if (res) { notify("다시 생성을 요청했습니다. 약 3분 뒤 같은 시드의 후보가 그룹의 모든 레이어에 도착하며, 자동으로 적용되지 않습니다.", "ok"); regenOpen = false; await refreshState(); renderLayer(true); }
     });
     return {
-      form, headOnly,
+      form,
+      /** Every opening starts from the defaults (a seed typed for one layer must not leak into the next). */
+      reset() { seedAuto.checked = true; syncSeed(); seedNum.value = 42; steps.value = 30; stepsOut.textContent = "30"; },
       prepare(l) {
-        headOnly.hidden = l.grid !== "head";
-        intro.textContent = `이 레이어가 속한 그룹(${l.grid === "head" ? "머리" : "몸"})을 모델로 다시 돌려 '${l.label || labelOf(l.tag)}'의 새 결과를 만듭니다. 결과는 후보로 도착하며 자동으로 적용되지 않습니다. GPU 작업기 대기열에 들어가므로 시간이 걸릴 수 있습니다.`;
+        const group = l.grid === "head" ? "머리 11개" : "몸 12개";
+        intro.textContent = `모델은 부위 그룹 전체를 한 번에 생성합니다. '${l.label || labelOf(l.tag)}'이(가) 속한 그룹(${group} 레이어)을 새 시드로 다시 돌려 GPU 작업기에서 약 3분 걸립니다. 같은 시드의 결과가 그룹의 모든 레이어에 후보로 도착하고, 자동으로 적용되지 않습니다. 마음에 드는 레이어만 골라 쓰거나 [모두 적용]으로 한꺼번에 바꿀 수 있습니다.`;
       },
     };
   })();
@@ -337,15 +335,24 @@ export function createInspector(container, deps) {
     };
   }
 
+  function pendingOf(t) {
+    // the candidates of this regeneration that are still there and not in use
+    const vs = (t.result && t.result.versions) || [];
+    return vs.filter((x) => { const l = layerOf(x.tag); return l && l.versions.some((v) => v.id === x.version) && l.current !== x.version; });
+  }
   function taskLine(t) {
     const st = String(t.status || "");
-    const [stLabel, tone] = st === "running" ? ["진행 중", "warn"] : st === "queued" ? ["대기", ""] : st === "failed" ? ["실패", "bad"] : [st || "-", ""];
+    const [stLabel, tone] = st === "running" ? ["진행 중", "warn"] : st === "queued" ? ["대기", ""] : st === "failed" ? ["실패", "bad"] : st === "done" ? ["완료", "ok"] : [st || "-", ""];
     const names = (t.tags || []).map((x) => labelOf(x));
     const title = `${t.kind === "regen" || !t.kind ? "다시 생성" : t.kind}${names.length ? ` · ${names.slice(0, 3).join(", ")}${names.length > 3 ? ` 외 ${names.length - 3}` : ""}` : ""}`;
     const p = Math.max(0, Math.min(1, Number(t.progress) || 0));
+    const pending = st === "done" ? pendingOf(t) : [];
+    const applyAll = pending.length ? el("button", { type: "button", class: "btn small primary", "data-fk": `apply-${t.id}`, title: "이 시드의 후보를 모두 적용합니다 (레이어별 되돌리기는 버전 목록에서)" }, icon("check", 14), ` 시드 ${t.seed ?? ""} 후보 ${pending.length}개 모두 적용`) : null;
+    if (applyAll) applyAll.addEventListener("click", () => act(() => api.applyTask(t.id), "후보를 적용했습니다. 마음에 안 드는 레이어는 버전 목록에서 되돌릴 수 있습니다."));
     return el("li", { class: "in-task", "data-status": st },
       el("div", { class: "in-task-top" }, el("span", { class: "in-task-title", text: title }), el("span", { class: `pill ${tone}`, text: stLabel })),
-      st === "failed" ? null : el("div", { class: "progress", role: "progressbar", "aria-label": `${title} 진행률`, "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(Math.round(p * 100)) }, el("i", { style: `width:${Math.round(p * 100)}%` })),
+      applyAll,
+      (st === "failed" || st === "done") ? null : el("div", { class: "progress", role: "progressbar", "aria-label": `${title} 진행률`, "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(Math.round(p * 100)) }, el("i", { style: `width:${Math.round(p * 100)}%` })),
       (t.error || t.message) ? el("p", { class: `small ${st === "failed" ? "bad-text" : "muted"}`, text: t.error || t.message }) : null);
   }
 
@@ -353,8 +360,10 @@ export function createInspector(container, deps) {
     const [kindLabel, kindTone] = KIND[v.kind] || [v.kind || "?", ""];
     const isCur = v.id === l.current;
     const meta = [v.seed != null ? `시드 ${v.seed}` : "", agoText(v.created)].filter(Boolean).join(" · ");
-    const img = el("img", { alt: "", decoding: "async", loading: "lazy", src: api.layerThumbUrl(l.tag, v.id, 0) });
-    const thumb = el("span", { class: "in-ver-thumb checker" }, img);
+    // a blank version has no thumbnail on the server (404): do not ask for it
+    const blank = v.opaque === 0 || (isCur && l.empty);
+    const img = el("img", { alt: "", decoding: "async", loading: "lazy", src: blank ? false : api.layerThumbUrl(l.tag, v.id, 0) });
+    const thumb = el("span", { class: "in-ver-thumb checker" + (blank ? " is-missing" : "") }, img);
     img.addEventListener("error", () => { thumb.classList.add("is-missing"); img.removeAttribute("src"); });
     const main = el("button", { type: "button", class: "in-ver-main", "data-fk": `ver-${v.id}`, "aria-label": `${kindLabel} 버전 ${v.id}${isCur ? " (현재)" : " 적용"}`, "aria-current": isCur ? "true" : false, title: isCur ? "지금 쓰는 버전" : "이 버전을 적용합니다 (되돌리기·다시 하기·후보 비교에 씁니다)" },
       thumb,
@@ -383,8 +392,19 @@ export function createInspector(container, deps) {
     const l = selected ? layerOf(selected) : null;
     const nodes = [];
     const tasks = state && Array.isArray(state.tasks) ? state.tasks : [];
-    const shownTasks = tasks.filter((t) => ["queued", "running", "failed"].includes(String(t.status))).slice(-6);
+    const active = (t) => ["queued", "running"].includes(String(t.status));
+    const recentFail = (t) => String(t.status) === "failed" && (!t.finished_at || Date.now() / 1000 - Number(t.finished_at) < 600);
+    const hasPending = (t) => String(t.status) === "done" && pendingOf(t).length > 0;
+    const shownTasks = tasks.filter((t) => active(t) || recentFail(t) || hasPending(t)).slice(0, 6);
+    const regenBusy = tasks.some(active); // the server runs one regeneration per puppet at a time
 
+    if (api && !degraded && state && state.dirty) {
+      nodes.push(put("dirty", "dirty", () => {
+        const b = el("button", { type: "button", class: "btn small", "data-fk": "rebuild" }, icon("check", 14), " 지금 반영");
+        b.addEventListener("click", () => act(() => api.rebuild(), "퍼펫에 반영했습니다."));
+        return el("div", { class: "notice warn in-dirty" }, icon("info", 16), " 아직 퍼펫에 반영하지 않은 변경이 있습니다. ", b);
+      }));
+    }
     if (!l) {
       nodes.push(put("empty", `empty|${degraded}|${selected}`, () => [
         el("div", { class: "in-hint" }, icon("layers", 22),
@@ -395,7 +415,8 @@ export function createInspector(container, deps) {
       const label = l.label || labelOf(l.tag);
       const grp = (state.groups && state.groups[l.group]) || GROUP_LABELS[l.group || groupOf(l.tag)] || "";
       nodes.push(put("head", `head|${JSON.stringify([l.tag, label, l.group, l.grid, l.opaque_px, l.bbox, l.empty])}`, () => {
-        const bb = Array.isArray(l.bbox) && l.bbox.length === 4 ? `${l.bbox[0]}, ${l.bbox[1]} – ${l.bbox[2]}, ${l.bbox[3]} (${l.bbox[2] - l.bbox[0]}×${l.bbox[3] - l.bbox[1]})` : "-";
+        // bbox is [x, y, width, height] in the edit grid
+        const bb = Array.isArray(l.bbox) && l.bbox.length === 4 ? `${l.bbox[2]}×${l.bbox[3]} px · 위치 ${l.bbox[0]}, ${l.bbox[1]}` : "-";
         return [
           el("div", { class: "in-title" }, el("h3", { text: label }), el("code", { class: "small muted", text: l.tag }), grp ? el("span", { class: "pill", text: grp }) : null),
           el("dl", { class: "kv in-kv" },
@@ -408,7 +429,7 @@ export function createInspector(container, deps) {
         nodes.push(put("degraded", "degraded", () => el("div", { class: "notice" }, icon("info", 16), " 편집 기능 준비 중입니다. 지금은 레이어를 보고·숨기고·강조하는 것만 됩니다.")));
       } else {
         const nb = orderNeighbors(l);
-        nodes.push(put("flags", `flags|${JSON.stringify([l.tag, l.enabled, l.order, l.order_default, nb])}`, () => {
+        nodes.push(put("flags", `flags|${JSON.stringify([l.tag, l.enabled, l.empty, l.order, l.order_default, nb])}`, () => {
           const inc = makeSwitch("퍼펫에 포함", { checked: l.enabled !== false, title: "끄면 이 레이어를 뺀 퍼펫으로 다시 만듭니다", onChange: (on) => act(() => api.flags(l.tag, { enabled: on }), on ? `'${label}' 레이어를 퍼펫에 포함했습니다.` : `'${label}' 레이어를 퍼펫에서 뺐습니다.`) });
           inc.input.setAttribute("data-fk", "include");
           const up = el("button", { type: "button", class: "btn small icon-only", "aria-label": "앞으로 (그리기 순서 올리기)", title: "앞으로 — 한 칸 위 레이어를 넘어 앞에 그립니다", disabled: nb.up == null || l.empty, "data-fk": "order-up" }, icon("up", 15));
@@ -419,19 +440,21 @@ export function createInspector(container, deps) {
           if (reset) reset.addEventListener("click", () => act(() => api.flags(l.tag, { order: l.order_default })));
           return [
             el("div", { class: "in-row split" }, inc.row),
+            l.enabled === false ? el("p", { class: "small muted", text: "퍼펫에서 제외된 레이어라 무대에는 보이지 않습니다." }) : null,
+            l.empty ? el("p", { class: "small muted", text: "비어 있는 레이어입니다. 편집이나 다시 생성으로 채울 수 있습니다." }) : null,
             el("div", { class: "in-order" }, el("span", { class: "in-label", text: "그리기 순서" }), el("span", { class: "mono", text: String(l.order), "aria-label": `현재 ${l.order}` }), el("span", { class: "small muted", text: `기본 ${l.order_default}` }), up, down, reset),
             el("p", { class: "small muted", text: "숫자가 클수록 앞에 그려집니다." }),
           ];
         }));
         const canRegen = state.can_regen !== false;
-        nodes.push(put("actions", `actions|${JSON.stringify([l.tag, l.current, canRegen, regenOpen])}`, () => {
+        nodes.push(put("actions", `actions|${JSON.stringify([l.tag, l.current, canRegen, regenOpen, regenBusy])}`, () => {
           const bEdit = el("button", { type: "button", class: "btn small primary", "data-fk": "edit" }, icon("pencil", 14), " 편집");
-          const bRegen = el("button", { type: "button", class: "btn small", "data-fk": "regen", "aria-expanded": String(regenOpen), disabled: !canRegen, title: canRegen ? "이 레이어를 모델로 다시 생성합니다" : "이 서버는 아직 다시 생성을 지원하지 않습니다" }, icon("refresh", 14), " 다시 생성");
+          const bRegen = el("button", { type: "button", class: "btn small", "data-fk": "regen", "aria-expanded": String(regenOpen), disabled: !canRegen || regenBusy, title: !canRegen ? "GPU 작업기가 준비되지 않아 지금은 다시 생성할 수 없습니다" : regenBusy ? "이 퍼펫은 이미 다시 생성 중입니다. 끝난 뒤 눌러 주세요" : "이 레이어를 모델로 다시 생성합니다" }, icon("refresh", 14), " 다시 생성");
           const bOrig = el("button", { type: "button", class: "btn small", "data-fk": "to-original", disabled: l.current === "v0", title: l.current === "v0" ? "이미 원본입니다" : "원본(v0) 버전으로 되돌립니다" }, icon("undo", 14), " 원본으로");
           bEdit.addEventListener("click", () => onEdit(l.tag));
-          bRegen.addEventListener("click", () => { regenOpen = !regenOpen; renderLayer(true); if (regenOpen) regen.form.querySelector("input,button")?.focus(); });
+          bRegen.addEventListener("click", () => { regenOpen = !regenOpen; if (regenOpen) regen.reset(); renderLayer(true); if (regenOpen) regen.form.querySelector("input,button")?.focus(); });
           bOrig.addEventListener("click", () => act(() => api.select(l.tag, "v0"), `'${label}' 레이어를 원본으로 되돌렸습니다.`));
-          return [el("div", { class: "in-actions" }, bEdit, bRegen, bOrig), canRegen ? null : el("p", { class: "small muted", text: "다시 생성은 GPU 작업기가 연결되면 사용할 수 있습니다." })];
+          return [el("div", { class: "in-actions" }, bEdit, bRegen, bOrig), !canRegen ? el("p", { class: "small muted", text: "다시 생성은 GPU 작업기가 준비되면 사용할 수 있습니다." }) : regenBusy ? el("p", { class: "small muted", text: "이 퍼펫은 이미 다시 생성 중입니다. 끝난 뒤 다시 요청할 수 있습니다." }) : null];
         }));
         regen.prepare(l);
         nodes.push(put("regen", `regen|${regenOpen}|${l.grid}|${l.tag}`, () => (regenOpen ? [regen.form] : [])));

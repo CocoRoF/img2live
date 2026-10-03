@@ -28,7 +28,7 @@ def run_worker_once(cfg, app):
     return task["id"]
 
 
-def test_regen_creates_candidates_that_are_not_applied_until_chosen(fresh):
+def test_regen_runs_whole_groups_and_every_layer_comes_back_as_a_candidate(fresh):
     cfg, app, client, jid = fresh
     s0 = client.get(f"/api/jobs/{jid}/studio").json()
     assert s0["can_regen"] is True and s0["tasks"] == []
@@ -37,28 +37,48 @@ def test_regen_creates_candidates_that_are_not_applied_until_chosen(fresh):
     t = r.json()["task"]
     assert t["status"] == "queued" and t["tags"] == ["footwear", "face"] and t["seed"] == 11 and t["steps"] == 25
     assert client.get(f"/api/jobs/{jid}/studio").json()["tasks"][0]["id"] == t["id"]
-    # one at a time per puppet
-    assert client.post(f"/api/jobs/{jid}/studio/regen", json={"tags": ["footwear"]}).status_code == 409
+    assert client.post(f"/api/jobs/{jid}/studio/regen", json={"tags": ["footwear"]}).status_code == 409   # one at a time per puppet
 
     run_worker_once(cfg, app)
     s = client.get(f"/api/jobs/{jid}/studio").json()
     task = s["tasks"][0]
-    assert task["status"] == "done" and task["progress"] == 1.0 and set(task["result"]["tags"]) == {"footwear", "face"} and task["result"]["seed"] == 11
-    for tag in ("footwear", "face"):
+    res = task["result"]
+    assert task["status"] == "done" and task["progress"] == 1.0 and res["seed"] == 11
+    assert set(res["tags"]) == {"footwear", "face"}                              # what was asked for
+    got = {v["tag"]: v for v in res["versions"]}
+    assert {"footwear", "topwear", "front hair", "face", "eyelash", "nose"} <= set(got)    # the model made the whole groups
+    assert got["footwear"]["requested"] and got["face"]["requested"] and not got["topwear"]["requested"]
+    for tag, v in got.items():
         lay = L(s, tag)
-        assert lay["current"] == "v0"                                          # a candidate is never applied by itself
-        cand = [v for v in lay["versions"] if v["kind"] == "regen"]
-        assert len(cand) == 1 and cand[0]["seed"] == 11 and cand[0]["note"] == "시드 11"
-    assert s["rev"] == 0                                                        # the puppet did not change
-    cand = [v for v in L(s, "footwear")["versions"] if v["kind"] == "regen"][0]["id"]
+        assert lay["current"] == "v0"                                            # a candidate is never applied by itself
+        cands = [x for x in lay["versions"] if x["kind"] == "regen"]
+        assert len(cands) == 1 and cands[0]["id"] == v["version"] and cands[0]["seed"] == 11 and cands[0]["task"] == task["id"]
+    assert s["rev"] == 0                                                          # the puppet did not change
+    cand = got["footwear"]["version"]
     old, new = layer_png(client, jid, "footwear"), layer_png(client, jid, "footwear", cand)
-    assert new.shape == old.shape and not np.array_equal(new, old)             # a different result (seed tint)
+    assert new.shape == old.shape and not np.array_equal(new, old)
     assert client.get(f"/api/jobs/{jid}/studio/layer/footwear/thumb", params={"v": cand}).status_code == 200
-    # applying = selecting it; the puppet is rebuilt
+    # one layer: select its candidate
     ap = client.post(f"/api/jobs/{jid}/studio/layer/footwear/select", json={"version": cand}).json()["state"]
-    assert ap["rev"] == 1 and L(ap, "footwear")["current"] == cand
+    assert ap["rev"] == 1 and L(ap, "footwear")["current"] == cand and L(ap, "topwear")["current"] == "v0"
+    # the whole sample at once, optionally only some layers
+    part = client.post(f"/api/jobs/{jid}/studio/task/{task['id']}/apply", json={"tags": ["topwear"]}).json()["state"]
+    assert part["rev"] == 2 and L(part, "topwear")["current"] == got["topwear"]["version"] and L(part, "face")["current"] == "v0"
+    allin = client.post(f"/api/jobs/{jid}/studio/task/{task['id']}/apply", json={}).json()["state"]
+    assert allin["rev"] == 3 and all(L(allin, tag)["current"] == v["version"] for tag, v in got.items())
+    assert client.post(f"/api/jobs/{jid}/studio/task/{task['id']}/apply", json={"tags": "x"}).status_code == 400
+    assert client.post(f"/api/jobs/{jid}/studio/task/nope/apply", json={}).status_code == 404
     # a finished task frees the puppet for the next one
     assert client.post(f"/api/jobs/{jid}/studio/regen", json={"tags": ["topwear"], "seed": 5}).status_code == 200
+
+
+def test_a_body_only_request_does_not_run_the_head_group(fresh):
+    cfg, app, client, jid = fresh
+    client.post(f"/api/jobs/{jid}/studio/regen", json={"tags": ["footwear"], "seed": 3})
+    run_worker_once(cfg, app)
+    res = client.get(f"/api/jobs/{jid}/studio").json()["tasks"][0]["result"]
+    tags = {v["tag"] for v in res["versions"]}
+    assert "topwear" in tags and "face" not in tags and "eyelash" not in tags     # body group only
 
 
 def test_regen_input_checks_limits_and_admin(fresh):

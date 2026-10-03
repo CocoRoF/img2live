@@ -70,12 +70,13 @@ def process_regen(task: dict, cfg, db, engine) -> None:
         st = Studio(jdir, jid)
         for tag in imgs:
             arr = res.head_hires.get(tag) if (tag in HEAD_TAGS and hs) else res.layers.get(tag)
-            if arr is None:
-                continue
-            v = st.add_version(tag, arr, "regen", note=f"시드 {seed}", make_current=False, seed=seed, steps=steps)
-            made.append({"tag": tag, "version": v["id"]})
+            if arr is None or not (arr[..., 3] >= 16).any():
+                continue  # the model left this slot empty (no tail on this character, ...)
+            v = st.add_version(tag, arr, "regen", note=f"시드 {seed}", make_current=False, seed=seed, steps=steps, task=tid,
+                               requested=tag in tags)
+            made.append({"tag": tag, "version": v["id"], "requested": tag in tags})
         st.save()
     db.update_task(tid, status="done", progress=1.0, message="완료", finished_at=time.time(),
-                   result_json={"tags": [m["tag"] for m in made], "versions": made, "seed": seed, "steps": steps,
+                   result_json={"tags": [m["tag"] for m in made if m["requested"]], "versions": made, "seed": seed, "steps": steps,
                                 "generate_s": round(gen_s, 1), "total_s": round(time.time() - t0, 1)})
     log.info("regen %s for job %s: %s seed %s in %.1fs", tid, jid, [m["tag"] for m in made], seed, time.time() - t0)

@@ -153,6 +153,23 @@ def register(app: FastAPI, cfg, db, helpers: dict) -> None:
             return answer(st)
         return {"ok": True, "state": await run(job_id, f, write=True)}
 
+    @app.post("/api/jobs/{job_id}/studio/task/{tid}/apply")
+    async def studio_apply_task(job_id: str, tid: str, request: Request):
+        """Apply the candidates of one regeneration together (optionally only some of its layers)."""
+        payload = await body(request)
+        t = db.get_task(tid)
+        if t is None or t["job_id"] != job_id or t["status"] != "done":
+            raise HTTPException(404, "finished regeneration not found")
+        tags = payload.get("tags")
+        if tags is not None and not (isinstance(tags, list) and all(isinstance(x, str) for x in tags)):
+            raise HTTPException(400, "tags must be a list")
+        versions = (t.get("result_json") or {}).get("versions", [])
+
+        def f(st, j):
+            service.apply_task(st, versions, tags, j.get("prompt") or "")
+            return answer(st)
+        return {"ok": True, "state": await run(job_id, f, write=True)}
+
     @app.post("/api/jobs/{job_id}/studio/regen")
     async def studio_regen(job_id: str, request: Request):
         """Ask the GPU worker to run the model again for some layers; the results arrive as candidates."""

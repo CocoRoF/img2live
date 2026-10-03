@@ -222,3 +222,22 @@ def reset(st: Studio, prompt: str) -> None:
     for L in st.state()["layers"].values():
         L["current"], L["enabled"], L["order"] = "v0", True, None
     _commit(st, before, True, prompt)
+
+
+def apply_task(st: Studio, versions: list, tags: Optional[list], prompt: str) -> None:
+    """Make the candidates of one regeneration (one seed = one coherent sample) current together, rebuilding once."""
+    before = copy.deepcopy(st.state())
+    n = 0
+    for item in versions:
+        tag, vid = item["tag"], item["version"]
+        if tags is not None and tag not in tags:
+            continue
+        try:
+            st.version(tag, vid)
+        except StudioError:
+            continue  # the candidate was deleted meanwhile
+        st.layer(tag)["current"] = vid
+        n += 1
+    if not n:
+        raise StudioError("적용할 후보가 없습니다.")
+    _commit(st, before, True, prompt)

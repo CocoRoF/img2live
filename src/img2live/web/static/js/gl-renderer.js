@@ -138,6 +138,7 @@ export class GLRenderer {
     this.camera = { cx: model.canvas.w / 2, cy: model.canvas.h / 2, zoom: 0.5 };
     this.cameraMode = "fit"; // 'fit' | 'head' | 'custom'
     this._lastPreset = "fit";
+    this.insets = { top: 0, right: 0, bottom: 0, left: 0 }; // CSS px of the canvas covered by floating UI: the fit/head presets frame the puppet in the rest
     this.cssWidth = 1;
     this.cssHeight = 1;
     this.dpr = 1;
@@ -431,9 +432,13 @@ export class GLRenderer {
     const [x0, y0, x1, y1] = box;
     const bw = Math.max(x1 - x0, 1);
     const bh = Math.max(y1 - y0, 1);
-    const zoom = Math.min(this.cssWidth / (bw * (1 + pad)), this.cssHeight / (bh * (1 + pad)));
-    this.camera.cx = (x0 + x1) / 2;
-    this.camera.cy = (y0 + y1) / 2;
+    const ins = this.insets;
+    const aw = Math.max(1, this.cssWidth - ins.left - ins.right); // the free area (insets are zero in the standalone viewer)
+    const ah = Math.max(1, this.cssHeight - ins.top - ins.bottom);
+    const zoom = Math.min(aw / (bw * (1 + pad)), ah / (bh * (1 + pad)));
+    // put the box centre at the centre of the free area rather than of the whole canvas
+    this.camera.cx = (x0 + x1) / 2 + (this.cssWidth / 2 - (ins.left + aw / 2)) / zoom;
+    this.camera.cy = (y0 + y1) / 2 + (this.cssHeight / 2 - (ins.top + ah / 2)) / zoom;
     this.camera.zoom = zoom;
   }
 

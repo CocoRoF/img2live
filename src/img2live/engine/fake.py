@@ -177,22 +177,29 @@ class FakeDecomposer:
         self.loaded = True
 
     def regen(self, rgba, tags, resolution: int = 1280, steps: int = 30, seed: int = 42, head_square=None, progress=None):
-        """Synthetic stand-in: the same layers with a seed-dependent tint, so tests can tell candidates apart."""
+        """Synthetic stand-in with the real contract (whole groups come back), tinted by the seed so candidates differ."""
+        from .types import BODY_TAGS, HEAD_TAGS
+
         progress = progress or (lambda *a: None)
         layers = synthetic_layers(resolution)
         sq = (520.0 * resolution / 1280, 60.0 * resolution / 1280, 240.0 * resolution / 1280)
         hires = _draw_head(resolution, resolution / sq[2], sq[0], sq[1])
+        want = []
+        if any(t in BODY_TAGS for t in tags):
+            want += [t for t in BODY_TAGS if t != "head"]
+        if any(t in HEAD_TAGS for t in tags):
+            want += list(HEAD_TAGS)
         out = {}
         tint = np.array([(seed * 37) % 60 - 30, (seed * 17) % 60 - 30, (seed * 29) % 60 - 30], np.int16)
-        for i, t in enumerate(tags):
-            a = (hires.get(t) if t in hires else layers.get(t))
+        for i, t in enumerate(want):
+            a = hires[t] if t in HEAD_TAGS else layers.get(t)
             if a is None:
                 continue
             a = a.copy()
             a[..., :3] = np.clip(a[..., :3].astype(np.int16) + tint, 0, 255).astype(np.uint8)
             out[t] = a
-            progress("body", (i + 1) / max(1, len(tags)), f"synthetic {t}")
-            time.sleep(0.02)
+            progress("body", (i + 1) / max(1, len(want)), f"synthetic {t}")
+        time.sleep(0.05)
         return out
 
     def run(self, rgba: np.ndarray, resolution: int = 1280, steps: int = 30, seed: int = 42,

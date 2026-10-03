@@ -114,10 +114,13 @@ class Decomposer:
     def regen(self, rgba: np.ndarray, tags, resolution: int = 1280, steps: int = 30, seed: int = 42,
               head_square: Optional[Tuple[float, float, float]] = None,
               progress: Optional[ProgressFn] = None) -> Dict[str, np.ndarray]:
-        """Run the model again for just ``tags``; returns tag -> RGBA (resolution x resolution) in the layer's edit grid.
+        """Run the model again (new seed) for the groups that contain ``tags``.
 
-        Body tags come from one pass over the whole character, head tags from one pass over the head square the job
-        already uses (so the result drops into the same grid).  The model takes any number of tags (``num_frames``).
+        The model's part embeddings are learned per slot (13 body slots, 11 head slots), so a pass always generates the
+        whole group; every layer of the group comes back as one coherent sample of that seed, and the caller decides
+        which to keep.  Returns tag -> RGBA (resolution x resolution) in the layer's edit grid (the silhouette-only
+        ``head`` slot is not returned).  Head layers are drawn on the head square the job already uses, so they drop
+        into the same grid.
         """
         from .tensor_utils import seed_everything
 
@@ -125,25 +128,25 @@ class Decomposer:
             self.load()
         progress = progress or (lambda *a: None)
         seed_everything(seed)
-        body = [t for t in BODY_TAGS if t in tags and t != "head"]
-        head = [t for t in HEAD_TAGS if t in tags]
-        if head and head_square is None:
+        want_body = any(t in BODY_TAGS for t in tags)
+        want_head = any(t in HEAD_TAGS for t in tags)
+        if want_head and head_square is None:
             raise ValueError("this job has no head square; head layers cannot be regenerated")
-        total = (1 if body else 0) + (1 if head else 0)
+        total = int(want_body) + int(want_head)
         done = 0
         out: Dict[str, np.ndarray] = {}
-        if body:
+        if want_body:
             fullpage = center_square_pad_resize(rgba, resolution, return_pad_info=True)[0]
             base = done / total
-            imgs = self._run_pass(body, fullpage, 0, seed, steps,
-                                  lambda i, n: progress("body", base + i / n / total, f"몸 레이어 {len(body)}개 생성 중 ({i}/{n})"))
-            out.update(zip(body, imgs))
+            imgs = self._run_pass(BODY_TAGS, fullpage, 0, seed, steps,
+                                  lambda i, n: progress("body", base + i / n / total, f"몸 레이어 생성 중 ({i}/{n})"))
+            out.update({t: im for t, im in zip(BODY_TAGS, imgs) if t != "head"})
             done += 1
-        if head:
+        if want_head:
             base = done / total
-            imgs = self._run_pass(head, head_input(rgba, head_square, resolution), 1, seed, steps,
-                                  lambda i, n: progress("head", base + i / n / total, f"머리 레이어 {len(head)}개 생성 중 ({i}/{n})"))
-            out.update(zip(head, imgs))
+            imgs = self._run_pass(HEAD_TAGS, head_input(rgba, head_square, resolution), 1, seed, steps,
+                                  lambda i, n: progress("head", base + i / n / total, f"머리 레이어 생성 중 ({i}/{n})"))
+            out.update(dict(zip(HEAD_TAGS, imgs)))
         progress("done", 1.0, "생성 완료")
         return out
 

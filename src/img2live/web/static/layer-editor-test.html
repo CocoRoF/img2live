@@ -1,0 +1,21 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>img2live layer editor (test harness)</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="css/app.css">
+  <style>
+    html, body { height: 100%; margin: 0; overflow: hidden; }
+    #app { position: fixed; inset: 0; }
+  </style>
+</head>
+<body>
+  <!-- A harness with a FAKE studio api (synthetic layer + source images); see js/layer-editor-harness.js for the query switches.
+       The script is an external module so the page also runs under the app's CSP (script-src 'self'). -->
+  <div id="app"></div>
+  <script type="module" src="js/layer-editor-harness.js"></script>
+</body>
+</html>
