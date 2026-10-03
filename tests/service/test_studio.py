@@ -84,7 +84,7 @@ def test_initial_state_and_images(fresh):
     cfg, app, client, jid = fresh
     s = client.get(f"/api/jobs/{jid}/studio").json()
     assert s["rev"] == 0 and s["puppet"] == f"/files/{jid}/puppet/puppet.json" and s["canvas"] == 1280
-    assert s["head_square"] and not s["can_regen"] and s["tasks"] == []
+    assert s["head_square"] and s["can_regen"] and s["tasks"] == []          # the (fake) worker is alive
     tags = {x["tag"] for x in s["layers"]}
     assert {"front hair", "face", "topwear", "footwear", "nose"} <= tags and len(tags) == 23
     assert L(s, "face")["grid"] == "head" and L(s, "topwear")["grid"] == "canvas"
@@ -229,7 +229,7 @@ def test_fill_hole_and_clean_and_input_errors(fresh):
     assert edit(client, jid, "topwear", op="erase", mask=mask_b64((0, 0, 1, 1))).status_code == 400   # nothing of the layer there
     assert edit(client, jid, "topwear", op="dance", mask=mask_b64((600, 400, 700, 500))).status_code == 400
     assert client.post(f"/api/jobs/{jid}/studio/layer/topwear/select", json={"version": "zzz"}).status_code == 404
-    assert client.post(f"/api/jobs/{jid}/studio/regen", json={"tags": ["topwear"]}).status_code == 501
+    assert client.post(f"/api/jobs/{jid}/studio/regen", json={"tags": []}).status_code == 400
 
 
 def test_head_grid_edit_and_job_state_guards(fresh):

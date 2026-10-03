@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { mine, lookup } from "./mine.js";
-import { card } from "./pcard.js";
+import { mine } from "./mine.js";
 const $ = (id) => document.getElementById(id);
 const EXAMPLES = ["차분하게, 머리카락은 조금만 흔들리게", "활발하고 통통 튀는 느낌", "머리카락과 꼬리를 바람에 크게 흔들리게",
   "과장된 큰 동작", "calm and gentle motion", "energetic, lively hair sway", "no blink, static pose"];
@@ -14,8 +13,6 @@ async function refreshInfo() {
     info = await (await fetch("/api/info")).json();
   } catch { $("sWorker").textContent = "연결 실패"; return; }
   $("maxMb").textContent = info.limits.max_upload_mb;
-  const days = Math.round(info.limits.retention_hours / 24);
-  $("ret").textContent = days >= 365 ? `${Math.round(days / 365)}년` : days >= 2 ? `${days}일` : `${info.limits.retention_hours}시간`;
   const ok = info.worker_alive && info.worker_model_loaded;
   $("sWorker").innerHTML = ok ? '<span class="pill ok">준비됨</span>' : (info.worker_alive ? '<span class="pill warn">모델 로딩 중</span>' : '<span class="pill bad">오프라인</span>');
   $("slowNote").hidden = ok;
@@ -90,38 +87,3 @@ $("form").addEventListener("submit", async (e) => {
 
 refreshInfo(); setInterval(refreshInfo, 8000);
 window.addEventListener("i2l-admin-changed", refreshInfo);
-
-
-// ---------------------------------------------------------------- my puppets (this browser's list)
-let mineTimer = null;
-async function loadMine() {
-  const items = mine.list();
-  $("mineEmpty").hidden = items.length > 0;
-  if (!items.length) { $("mineList").innerHTML = ""; $("mineCount").textContent = ""; return; }
-  let d;
-  try { d = await lookup(items.map((x) => x.id)); } catch (e) { return; }   // offline: keep what is drawn
-  const alive = new Map(d.jobs.map((j) => [j.id, j]));
-  const gone = items.filter((x) => !alive.has(x.id)).length;
-  if (gone) mine.keepOnly([...alive.keys()]);                                // deleted or expired elsewhere: tidy the list
-  const rows = mine.list().map((x) => alive.get(x.id)).filter(Boolean);
-  $("mineList").innerHTML = rows.map((j) => card(j, d.now)).join("");
-  $("mineCount").textContent = rows.length ? `${rows.length}건` : "";
-  $("mineEmpty").hidden = rows.length > 0;
-  clearTimeout(mineTimer);
-  if (rows.some((j) => j.status === "queued" || j.status === "running")) mineTimer = setTimeout(loadMine, 8000);
-}
-$("mineList").addEventListener("click", async (e) => {
-  const b = e.target.closest("[data-del]"); if (!b) return;
-  if (!confirm("이 퍼펫을 지금 삭제할까요? 서버에서 바로 지워지고 되돌릴 수 없습니다.")) return;
-  const r = await fetch(`/api/jobs/${b.dataset.del}`, { method: "DELETE" });
-  if (r.ok || r.status === 404) { mine.remove(b.dataset.del); loadMine(); }
-  else alert((await r.json().catch(() => ({}))).detail || `삭제하지 못했습니다 (${r.status})`);
-});
-$("mineIO").addEventListener("click", () => { const box = $("mineIOBox"); box.hidden = !box.hidden; $("mineText").value = mine.exportText(); $("mineMsg").textContent = ""; });
-$("mineCopy").addEventListener("click", async () => { try { await navigator.clipboard.writeText($("mineText").value); $("mineMsg").textContent = "복사했습니다."; } catch (e) { $("mineText").select(); $("mineMsg").textContent = "직접 복사해 주세요."; } });
-$("mineImport").addEventListener("click", () => {
-  const n = mine.importText($("mineText").value.trim());
-  $("mineMsg").textContent = n < 0 ? "읽을 수 없는 텍스트입니다." : `${n}건을 추가했습니다.`;
-  if (n > 0) loadMine();
-});
-loadMine();

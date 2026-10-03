@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>내 퍼펫 · img2live</title>
+
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+<header class="site"><div class="wrap">
+  <a class="brand" href="/">img<b>2</b>live</a>
+  <nav class="site" aria-label="주 메뉴"><a href="/">만들기</a><a href="/mine" aria-current="page">내 퍼펫 <span class="count" id="navMineCount"></span></a><a href="/about">소개</a><a href="/terms">약관</a><a class="ext" href="https://github.com/CocoRoF/img2live" rel="noopener">GitHub</a></nav>
+</div></header>
+<main>
+<div class="container full">
+  <div class="page-head">
+    <div>
+      <h1>내 퍼펫 <span class="muted small" id="total" style="font-weight:500"></span></h1>
+      <p class="sub">로그인 없이 <b>이 브라우저</b>에 목록이 저장됩니다. 퍼펫은 <span id="ret">1년</span> 보관되고, 삭제하면 서버에서 바로 지워집니다.</p>
+    </div>
+    <div class="toolbar">
+      <a class="btn primary" href="/">＋ 새 퍼펫 만들기</a>
+      <button class="btn" id="ioBtn" type="button">다른 기기로 옮기기</button>
+    </div>
+  </div>
+
+  <div class="toolbar" id="tools" style="margin-bottom:18px" hidden>
+    <div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" id="q" placeholder="프롬프트로 검색" aria-label="검색" autocomplete="off"></div>
+    <div class="seg" id="filter" role="group" aria-label="상태">
+      <button type="button" data-s="" aria-pressed="true">전체<span class="n"></span></button>
+      <button type="button" data-s="done" aria-pressed="false">완료<span class="n"></span></button>
+      <button type="button" data-s="active" aria-pressed="false">진행 중<span class="n"></span></button>
+      <button type="button" data-s="failed" aria-pressed="false">실패<span class="n"></span></button>
+    </div>
+    <select id="sort" aria-label="정렬" style="width:auto;height:40px"><option value="new">최근 순</option><option value="old">오래된 순</option></select>
+  </div>
+
+  <div id="list" class="pgrid"></div>
+  <div id="empty" class="empty-state" hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="1.6"/><path d="m21 15-4.5-4.5L5 21"/></svg>
+    <h2>아직 만든 퍼펫이 없어요</h2>
+    <p>일러스트 한 장을 올리면 몇 분 안에 움직이는 퍼펫이 만들어집니다. 만든 퍼펫은 여기에 모입니다.</p>
+    <a class="btn primary lg" href="/">첫 퍼펫 만들기</a>
+  </div>
+  <div id="nomatch" class="empty-state" hidden style="padding:48px 20px"><h2>조건에 맞는 퍼펫이 없어요</h2><p>검색어나 상태를 바꿔 보세요.</p></div>
+</div>
+</main>
+<dialog id="ioDlg" aria-labelledby="ioTitle">
+  <h2 id="ioTitle">다른 기기로 옮기기</h2>
+  <p class="small muted">이 목록은 서버가 아니라 이 브라우저에만 있습니다. 다른 기기에서 보려면 아래 텍스트를 복사해 그 기기의 이 화면에 붙여넣고 [가져오기]를 누르세요. 퍼펫 주소를 아는 사람은 누구나 볼 수 있으니 이 텍스트를 공유하지 마세요.</p>
+  <textarea id="ioText" rows="4" spellcheck="false" aria-label="목록 텍스트"></textarea>
+  <p class="small muted" id="ioMsg" style="margin:8px 0 0;min-height:1.4em"></p>
+  <div class="dlg-actions"><button class="btn" id="ioCopy" type="button">복사</button><button class="btn primary" id="ioImport" type="button">가져오기</button><button class="btn ghost" id="ioClose" type="button">닫기</button></div>
+</dialog>
+<footer class="site"><div class="container full"><p>img2live — 오픈소스(Apache-2.0) · <a href="https://github.com/CocoRoF/img2live" rel="noopener">소스</a> · <a href="/about">소개</a> · <a href="/terms">이용약관·고지</a> · 생성된 결과는 AI 생성물입니다.</p></div></footer>
+<script type="module" src="/static/js/nav.js"></script>
+<script type="module" src="/static/js/admin.js"></script>
+<script type="module" src="/static/js/mine-page.js"></script>
+</body>
+</html>

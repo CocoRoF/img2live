@@ -278,7 +278,7 @@ def test_admin_can_list_every_job_and_preview_it_visitors_cannot(env):
 def test_pages_version_their_assets_and_static_files_revalidate(env):
     """A CDN once kept serving an old stylesheet after a deploy: asset URLs now carry a content hash."""
     cfg, app, client = env
-    for path in ("/", "/terms", "/admin", "/j/" + "a" * 22):
+    for path in ("/", "/mine", "/about", "/terms", "/admin", "/j/" + "a" * 22):
         h = client.get(path).text
         refs = __import__("re").findall(r'(?:src|href)="(/static/[^"]+)"', h)
         assert refs and all("?v=" in r and len(r.split("?v=")[1]) == 10 for r in refs), (path, refs)

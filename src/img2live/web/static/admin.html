@@ -5,15 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>전체 퍼펫 · img2live</title>
+
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/css/app.css">
 </head>
 <body>
 <header class="site"><div class="wrap">
   <a class="brand" href="/">img<b>2</b>live</a>
-  <nav class="site"><a href="/">처음으로</a></nav>
+  <nav class="site" aria-label="주 메뉴"><a href="/">만들기</a><a href="/mine">내 퍼펫 <span class="count" id="navMineCount"></span></a><a href="/about">소개</a><a href="/terms">약관</a><a class="ext" href="https://github.com/CocoRoF/img2live" rel="noopener">GitHub</a></nav>
 </div></header>
-<main><div class="wrap">
+<main><div class="container full">
   <section id="gate" class="card" hidden>
     <h1>관리자 전용</h1>
     <p class="muted">이 화면은 관리자 모드에서만 열립니다. 아무 페이지에서 <b>Alt + Shift + M</b>을 눌러 비밀번호를 입력하세요.</p>
@@ -37,6 +38,8 @@
     <p class="muted small">작업은 만든 뒤 1년이 지나면 자동으로 삭제되고, 이용자가 삭제하면 바로 사라집니다. 이 목록에는 지금 서버에 있는 것만 보입니다.</p>
   </section>
 </div></main>
+<footer class="site"><div class="container full"><p>img2live — 관리자 화면</p></div></footer>
+<script type="module" src="/static/js/nav.js"></script>
 <script type="module" src="/static/js/admin.js"></script>
 <script type="module" src="/static/js/admin-jobs.js"></script>
 </body>

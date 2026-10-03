@@ -172,6 +172,8 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         return _p
 
     app.get("/", include_in_schema=False)(page("index.html"))
+    app.get("/mine", include_in_schema=False)(page("mine.html"))
+    app.get("/about", include_in_schema=False)(page("about.html"))
     app.get("/terms", include_in_schema=False)(page("terms.html"))
 
     @app.get("/j/{job_id}", include_in_schema=False)
