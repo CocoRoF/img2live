@@ -241,7 +241,6 @@ def test_admin_can_list_every_job_and_preview_it_visitors_cannot(env):
 
     # a visitor sees nothing
     assert client.get("/api/admin/jobs").status_code == 403
-    assert client.get(f"/api/admin/jobs/{a}/thumb").status_code == 403
     assert client.post("/api/admin/login", data={"password": "pw-for-test"}).status_code == 200
 
     d = client.get("/api/admin/jobs").json()
@@ -261,13 +260,13 @@ def test_admin_can_list_every_job_and_preview_it_visitors_cannot(env):
     assert p1["total"] == 3 and [j["id"] for j in p1["items"]] + [j["id"] for j in p2["items"]] == [c, b, a]
 
     # thumbnails: made from the composite, cached, cropped to the character, never for a job without one
-    r = client.get(f"/api/admin/jobs/{a}/thumb")
+    r = client.get(f"/api/jobs/{a}/thumb")
     assert r.status_code == 200 and r.headers["content-type"] == "image/png"
     im = Image.open(io.BytesIO(r.content)); assert max(im.size) <= 320 and im.mode == "RGBA"
     assert (cfg.jobs_dir / a / "thumb.png").exists()
-    assert client.get(f"/api/admin/jobs/{b}/thumb").status_code == 404
-    assert client.get("/api/admin/jobs/..%2F..%2Fetc/thumb").status_code == 404
-    assert client.get("/api/admin/jobs/not-a-job-id/thumb").status_code == 404
+    assert client.get(f"/api/jobs/{b}/thumb").status_code == 404
+    assert client.get("/api/jobs/..%2F..%2Fetc/thumb").status_code == 404
+    assert client.get("/api/jobs/not-a-job-id/thumb").status_code == 404
 
     # a deleted job leaves the list
     assert client.delete(f"/api/jobs/{c}").json()["deleted"]
@@ -296,3 +295,27 @@ def test_pages_version_their_assets_and_static_files_revalidate(env):
         assert client.get("/").text != a
     finally:
         css_file.write_bytes(old)
+
+
+def test_my_puppets_lookup_and_one_year_retention(env):
+    """Visitors keep their own list in the browser; the server only answers which ids still exist."""
+    cfg, app, client = env
+    assert Settings(data_dir=cfg.data_dir).retention_hours == 24 * 365            # default: one year
+    cfg.per_ip_per_day = 20
+    a = _submit(client, prompt="내 것").json()["id"]
+    b = _submit(client, prompt="지울 것").json()["id"]
+    j = app.state.db.get(a)
+    assert abs((j["delete_after"] - j["created_at"]) - cfg.retention_hours * 3600) < 5
+    app.state.db.claim_next()
+    eng = FakeDecomposer(); eng.load()
+    process_job(app.state.db.get(a) | {"id": a}, cfg, app.state.db, eng, {"engine": "fake"})
+    assert (cfg.jobs_dir / a / "thumb.png").exists()                              # the worker makes the preview itself
+    assert client.delete(f"/api/jobs/{b}").json()["deleted"]                      # a user's delete is immediate ...
+    assert not (cfg.jobs_dir / b).exists() and client.get(f"/api/jobs/{b}/thumb").status_code == 404
+    r = client.post("/api/jobs/lookup", json={"ids": [a, b, "x" * 22, "../etc", 7]}).json()
+    assert [x["id"] for x in r["jobs"]] == [a]                                    # ... deleted, unknown and malformed ids are dropped
+    got = r["jobs"][0]
+    assert got["status"] == "done" and got["has_thumb"] and got["prompt"] == "내 것" and got["delete_after"] > got["created_at"]
+    assert client.post("/api/jobs/lookup", content=b"nope").status_code == 400
+    many = client.post("/api/jobs/lookup", json={"ids": [a] * 300}).json()["jobs"]
+    assert len(many) <= 100

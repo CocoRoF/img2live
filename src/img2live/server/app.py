@@ -31,6 +31,7 @@ from ..config import Settings, get_settings
 from ..db import DB, new_job_id
 from ..rig.spec import parse_prompt
 from ..safety.gate import GateConfig, SafetyGate, sha256_bytes
+from ..thumbs import make_thumb
 
 log = logging.getLogger("img2live.api")
 STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "static"
@@ -258,33 +259,6 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         counts = {k: v for k, v in db.counts().items() if k != "deleted"}
         return {"total": total, "counts": counts, "items": items, "now": time.time(), "queue": db.active_count()}
 
-    @app.get("/api/admin/jobs/{job_id}/thumb")
-    async def admin_thumb(request: Request, job_id: str):
-        require_admin(request)
-        if not JOB_ID_RE.match(job_id):
-            raise HTTPException(404, "not found")
-        jdir = cfg.jobs_dir / job_id
-        thumb, comp = jdir / "thumb.png", jdir / "composite.png"
-        if not thumb.exists():
-            if not comp.exists():
-                raise HTTPException(404, "no preview")
-
-            def make():
-                im = Image.open(comp).convert("RGBA")
-                box = im.getchannel("A").point(lambda a: 255 if a > 16 else 0).getbbox()
-                if box:
-                    im = im.crop(box)
-                im.thumbnail((320, 320), Image.LANCZOS)
-                tmp = thumb.with_suffix(".tmp.png")
-                im.save(tmp, compress_level=6)
-                tmp.replace(thumb)
-
-            try:
-                await asyncio.to_thread(make)
-            except Exception:  # noqa: BLE001
-                raise HTTPException(404, "no preview")
-        return FileResponse(thumb, media_type="image/png", headers={"Cache-Control": "private, max-age=300"})
-
     @app.get("/admin", include_in_schema=False)
     async def admin_page():
         # the page itself is public (it shows a hint when not signed in); its data endpoints are not
@@ -369,6 +343,41 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         img.save(jdir / "source.png", compress_level=6)
         db.create(job_id, spec.raw_prompt, resolution, secrets.randbelow(2**31), ih, gate_dict, cfg.retention_hours)
         return {"id": job_id, "url": f"/j/{job_id}", "queue": db.active_count(), "rigSpec": spec.to_dict()}
+
+    @app.get("/api/jobs/{job_id}/thumb")
+    async def job_thumb(job_id: str):
+        """A small preview, by the job's private id (same capability as every other file of the job)."""
+        if not JOB_ID_RE.match(job_id):
+            raise HTTPException(404, "not found")
+        j = db.get(job_id)
+        if j is None or j["status"] == "deleted":
+            raise HTTPException(404, "not found")
+        try:
+            thumb = await asyncio.to_thread(make_thumb, cfg.jobs_dir / job_id)
+        except Exception:  # noqa: BLE001
+            thumb = None
+        if thumb is None:
+            raise HTTPException(404, "no preview")
+        return FileResponse(thumb, media_type="image/png", headers={"Cache-Control": "private, max-age=300"})
+
+    @app.post("/api/jobs/lookup")
+    async def jobs_lookup(request: Request):
+        """For a visitor's own list (kept in the browser): which of these private ids still exist, and in what state."""
+        try:
+            ids = (await request.json()).get("ids", [])
+        except Exception:  # noqa: BLE001
+            raise HTTPException(400, "ids required")
+        ids = [i for i in ids if isinstance(i, str) and JOB_ID_RE.match(i)][:100]
+        out = []
+        for i in ids:
+            j = db.get(i)
+            if j is None or j["status"] == "deleted":
+                continue
+            t = j.get("timings_json") or {}
+            out.append({k: j.get(k) for k in ("id", "status", "stage", "progress", "prompt", "resolution", "created_at",
+                                              "finished_at", "delete_after", "error")}
+                       | {"total_s": t.get("total_s"), "has_thumb": (cfg.jobs_dir / i / "composite.png").exists()})
+        return {"jobs": out, "now": time.time()}
 
     @app.get("/api/jobs/{job_id}")
     async def get_job(job_id: str):

@@ -141,14 +141,14 @@ def test_admin_page_lists_every_puppet(site_with_jobs):
         page.on("dialog", lambda d: d.accept())
         page.goto(base + "/admin")
         page.wait_for_selector("#gate:not([hidden])")
-        assert page.locator("#panel").is_hidden() and page.locator(".adm-card").count() == 0   # a visitor sees no jobs
+        assert page.locator("#panel").is_hidden() and page.locator(".pcard").count() == 0   # a visitor sees no jobs
 
         page.keyboard.press("Alt+Shift+M")
         page.fill("#adminOverlay input[type=password]", PASSWORD)
         page.click("#adminOverlay button[type=submit]")
-        page.wait_for_selector(".adm-card")                                    # the page reloads itself once signed in
-        until(lambda: page.locator(".adm-card").count() == 3, "three cards")
-        assert page.locator(".adm-card").first.get_attribute("data-id") == ids["wait"]   # newest first
+        page.wait_for_selector(".pcard")                                    # the page reloads itself once signed in
+        until(lambda: page.locator(".pcard").count() == 3, "three cards")
+        assert page.locator(".pcard").first.get_attribute("data-id") == ids["wait"]   # newest first
         until(lambda: page.locator(f'[data-id="{ids["ok"]}"] img').count() == 1, "the thumbnail")
         until(lambda: page.evaluate(f'document.querySelector(\'[data-id="{ids["ok"]}"] img\').naturalWidth') > 0, "thumbnail loaded")
         assert page.locator(f'[data-id="{ids["ok"]}"] a.btn').get_attribute("href") == f"/j/{ids['ok']}"
@@ -156,17 +156,17 @@ def test_admin_page_lists_every_puppet(site_with_jobs):
         assert "삭제까지" in page.inner_text(f'[data-id="{ids["ok"]}"]')
 
         page.click('[data-status="failed"]')                                   # filter by clicking the count
-        until(lambda: page.locator(".adm-card").count() == 1, "the failed filter")
+        until(lambda: page.locator(".pcard").count() == 1, "the failed filter")
         page.click('[data-status="failed"]')
-        until(lambda: page.locator(".adm-card").count() == 3, "filter cleared")
+        until(lambda: page.locator(".pcard").count() == 3, "filter cleared")
         page.fill("#q", "머리카락")                                             # search by prompt
-        until(lambda: page.locator(".adm-card").count() == 1, "the search")
+        until(lambda: page.locator(".pcard").count() == 1, "the search")
         page.fill("#q", "")
-        until(lambda: page.locator(".adm-card").count() == 3, "search cleared")
+        until(lambda: page.locator(".pcard").count() == 3, "search cleared")
 
         page.click(f'[data-del="{ids["bad"]}"]')                               # delete one (the confirm dialog is accepted)
         until(lambda: page.locator(f'[data-id="{ids["bad"]}"]').count() == 0, "the card to go")
-        until(lambda: page.locator(".adm-card").count() == 2, "two cards left")
+        until(lambda: page.locator(".pcard").count() == 2, "two cards left")
 
         page.goto(base + "/")                                                  # the badge leads here from any page
         page.wait_for_selector("#adminBadge")

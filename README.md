@@ -68,5 +68,5 @@ licence family. **A hosted service must pass those use restrictions on to its us
 [Terms](src/img2live/web/static/terms.html) already do; keep them if you deploy this.
 
 The upload gate (WD tagger) is best effort, not a guarantee. Results are private-link only, auto-deleted after
-72 h, never used for training. img2live is independent of Live2D Inc. and of the See-through authors and does not
+one year (deleted at once when the user deletes it; the list of "my puppets" lives in the visitor's browser), never used for training. img2live is independent of Live2D Inc. and of the See-through authors and does not
 use the Cubism SDK/Core.

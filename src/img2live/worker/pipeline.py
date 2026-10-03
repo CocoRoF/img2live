@@ -19,6 +19,7 @@ from ..engine.cleanup import clean_result
 from ..engine.decompose import head_to_canvas
 from ..engine.fidelity import refine_canvas, refine_head
 from ..engine.matting import cutout_plain_background
+from ..thumbs import make_thumb
 from ..engine.types import DecomposeResult
 from ..rig.compile import compile_puppet
 from ..rig.layers import build_layers
@@ -95,6 +96,10 @@ def process_job(job: dict, cfg: Settings, db: DB, engine, engine_info: dict) -> 
     if res.fullpage is not None and res.fullpage[..., 3].any():
         Image.fromarray(res.fullpage, "RGBA").save(jdir / "source_canvas.png", compress_level=6)
     Image.fromarray(exports.composite(res.layers, res.canvas), "RGBA").save(jdir / "composite.png", compress_level=6)
+    try:
+        make_thumb(jdir)
+    except Exception:  # noqa: BLE001 - the API makes it on demand if this fails
+        log.exception("thumbnail failed")
     (jdir / "downloads").mkdir(exist_ok=True)
     try:
         exports.write_psd(res.layers, res.canvas, jdir / "downloads" / "layers.psd")

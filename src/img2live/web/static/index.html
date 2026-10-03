@@ -11,76 +11,93 @@
 <body>
 <header class="site"><div class="wrap">
   <a class="brand" href="/">img<b>2</b>live</a>
-  <nav class="site"><a href="#how">작동 방식</a><a href="#limits">한계</a><a href="/terms">약관·고지</a><a href="https://github.com/CocoRoF/img2live" rel="noopener">GitHub</a></nav>
+  <nav class="site"><a href="#mine">내 퍼펫</a><a href="#how">작동 방식</a><a href="#limits">한계</a><a href="/terms">약관·고지</a><a href="https://github.com/CocoRoF/img2live" rel="noopener">GitHub</a></nav>
 </div></header>
-<main><div class="wrap">
-  <section class="hero">
-    <h1>일러스트 한 장으로,<br>움직이는 2D 퍼펫.</h1>
-    <p>캐릭터 일러스트와 프롬프트를 올리면 레이어로 분해하고(가려진 부분까지 복원), 눈 깜빡임·시선·머리 회전·호흡·머리카락 흔들림을 자동으로 리깅해서 <b>브라우저에서 바로 움직여 볼 수 있습니다.</b> 모든 중간 결과(레이어, 비교, 리그 보고서, 파일)를 직접 확인하고 내려받을 수 있습니다.</p>
-  </section>
+<main>
+  <div class="home">
+    <div class="rail">
+      <form class="card" id="form" autocomplete="off">
+        <h2>새 퍼펫 만들기</h2>
+        <div class="drop" id="drop" tabindex="0" role="button" aria-label="이미지를 끌어다 놓거나 클릭해서 선택">
+          <div id="dropMsg"><b>이미지를 끌어다 놓거나 클릭</b><br><span class="muted small">PNG · JPEG · WebP, 최대 <span id="maxMb">12</span>MB. 한 명의 캐릭터가 또렷한 애니풍 일러스트(정면 전신/상반신)가 가장 잘 됩니다.</span></div>
+          <img id="preview" alt="" hidden>
+        </div>
+        <input type="file" id="file" accept="image/png,image/jpeg,image/webp" class="sr-only" aria-label="이미지 파일">
 
-  <div class="grid2">
-    <form class="card" id="form" autocomplete="off">
-      <h2>1. 이미지와 프롬프트</h2>
-      <div class="drop" id="drop" tabindex="0" role="button" aria-label="이미지를 끌어다 놓거나 클릭해서 선택">
-        <div id="dropMsg"><b>이미지를 끌어다 놓거나 클릭</b><br><span class="muted small">PNG · JPEG · WebP, 최대 <span id="maxMb">12</span>MB. 한 명의 캐릭터가 또렷한 애니풍 일러스트(정면 전신/상반신)가 가장 잘 됩니다.</span></div>
-        <img id="preview" alt="" hidden>
-      </div>
-      <input type="file" id="file" accept="image/png,image/jpeg,image/webp" class="sr-only" aria-label="이미지 파일">
+        <label class="field" for="prompt">프롬프트 <span class="muted small">(선택)</span></label>
+        <textarea id="prompt" maxlength="500" placeholder="예) 차분한 분위기, 머리카락은 바람에 크게 흔들리게"></textarea>
+        <div class="chips" id="chips" aria-label="예시 프롬프트"></div>
+        <p class="small muted" style="margin-top:8px">프롬프트는 <b>동작 설정</b>(동작 크기·머리카락/꼬리 흔들림·깜빡임·대기 동작)으로 해석됩니다. 어떤 부위를 분리할지는 바꿀 수 없습니다.</p>
+        <div class="notice" id="interp" hidden></div>
 
-      <label class="field" for="prompt">프롬프트 <span class="muted small">(선택)</span></label>
-      <textarea id="prompt" maxlength="500" placeholder="예) 차분한 분위기, 머리카락은 바람에 크게 흔들리게"></textarea>
-      <div class="chips" id="chips" aria-label="예시 프롬프트"></div>
-      <p class="small muted" style="margin-top:8px">프롬프트는 <b>동작 설정</b>(동작 크기·머리카락/꼬리 흔들림·깜빡임·대기 동작)으로 해석됩니다. 어떤 부위를 분리할지는 바꿀 수 없습니다. 해석 결과는 아래에 그대로 보여 드립니다.</p>
-      <div class="notice" id="interp" hidden></div>
+        <label class="field" for="res">품질</label>
+        <select id="res"><option value="1280" selected>높음 · 1280px (권장, 더 선명)</option><option value="1024">표준 · 1024px (조금 더 빠름)</option></select>
 
-      <label class="field" for="res">품질</label>
-      <select id="res"><option value="1280" selected>높음 · 1280px (권장, 더 선명)</option><option value="1024">표준 · 1024px (조금 더 빠름)</option></select>
+        <div id="codeRow" hidden>
+          <label class="field" for="code">접근 코드</label>
+          <input type="password" id="code" autocomplete="off">
+        </div>
 
-      <div id="codeRow" hidden>
-        <label class="field" for="code">접근 코드</label>
-        <input type="password" id="code" autocomplete="off">
-      </div>
+        <label class="field" style="display:flex;gap:10px;align-items:flex-start;font-weight:500;margin-top:18px">
+          <input type="checkbox" id="consent" style="margin-top:5px">
+          <span>내가 올리는 이미지에 대한 권리가 있고, 성적·폭력적 콘텐츠나 미성년자를 성적으로 묘사하는 이미지가 아니며, <a href="/terms" target="_blank" rel="noopener">이용약관과 사용 제한</a>에 동의합니다. (만 14세 이상)</span>
+        </label>
+        <div class="notice bad" id="err" hidden role="alert"></div>
+        <p><button class="btn primary" id="go" type="submit" disabled>퍼펫 만들기</button> <span class="small muted" id="goHint"></span></p>
+      </form>
 
-      <label class="field" style="display:flex;gap:10px;align-items:flex-start;font-weight:500;margin-top:18px">
-        <input type="checkbox" id="consent" style="margin-top:5px">
-        <span>내가 올리는 이미지에 대한 권리가 있고, 성적·폭력적 콘텐츠나 미성년자를 성적으로 묘사하는 이미지가 아니며, <a href="/terms" target="_blank" rel="noopener">이용약관과 사용 제한</a>에 동의합니다. (만 14세 이상)</span>
-      </label>
-      <div class="notice bad" id="err" hidden role="alert"></div>
-      <p><button class="btn primary" id="go" type="submit" disabled>퍼펫 만들기</button> <span class="small muted" id="goHint"></span></p>
-    </form>
-
-    <aside class="card" aria-live="polite">
-      <h2>서버 상태</h2>
-      <dl class="kv" id="status"><dt>GPU 작업기</dt><dd id="sWorker">확인 중…</dd><dt>대기열</dt><dd id="sQueue">-</dd><dt>예상 소요</dt><dd id="sEta">-</dd></dl>
-      <div class="notice warn" id="slowNote" hidden>작업기가 모델을 불러오는 중입니다. 준비되면 업로드할 수 있습니다.</div>
-      <h3 style="margin-top:18px">처리 한도</h3>
-      <ul class="small muted" style="padding-left:1.1em;margin:0" id="limits"></ul>
-      <p class="small muted" style="margin-top:12px">결과는 <b>비공개 링크</b>로만 열리며 <span id="ret">72</span>시간 뒤 자동 삭제됩니다. 언제든 직접 삭제할 수 있습니다.</p>
-    </aside>
-  </div>
-
-  <section id="how" style="margin-top:36px">
-    <h2>작동 방식</h2>
-    <div class="steps">
-      <div class="step"><span class="n">1</span><h3>안전 검사</h3><p class="small muted">GPU를 쓰기 전에 성적 콘텐츠·미성년 묘사·사진·다인 이미지를 걸러냅니다.</p></div>
-      <div class="step"><span class="n">2</span><h3>레이어 분해</h3><p class="small muted">머리카락(앞/뒤)·얼굴·눈·눈썹·코·입·귀·목·옷·팔·다리·신발 등을 가려진 부분까지 복원해 RGBA 레이어로 나눕니다. (<a href="https://arxiv.org/abs/2602.03749" rel="noopener">See-through</a> 방법론 기반 자체 구현)</p></div>
-      <div class="step"><span class="n">3</span><h3>자동 리깅</h3><p class="small muted">레이어마다 메시를 만들고 머리 회전·눈·시선·눈썹·입·몸·머리카락의 변형 키폼과 물리를 생성한 뒤 수치 QA로 접힘을 검사합니다.</p></div>
-      <div class="step"><span class="n">4</span><h3>바로 확인</h3><p class="small muted">웹 뷰어에서 슬라이더·마우스·대기 모션으로 움직여 보고, 레이어·리그 보고서·파일을 모두 확인합니다.</p></div>
+      <aside class="card" aria-live="polite" style="margin-top:16px">
+        <h3>서버 상태</h3>
+        <dl class="kv" id="status"><dt>GPU 작업기</dt><dd id="sWorker">확인 중…</dd><dt>대기열</dt><dd id="sQueue">-</dd><dt>예상 소요</dt><dd id="sEta">-</dd></dl>
+        <div class="notice warn" id="slowNote" hidden>작업기가 모델을 불러오는 중입니다. 준비되면 업로드할 수 있습니다.</div>
+        <ul class="small muted" style="padding-left:1.1em;margin:10px 0 0" id="limits"></ul>
+      </aside>
     </div>
-  </section>
 
-  <section id="limits" style="margin-top:36px">
-    <h2>솔직한 한계</h2>
-    <div class="card prose"><ul>
-      <li><b>자동 리그의 수준은 "기본 모션"입니다</b>(깜빡임·시선·머리 회전·호흡·머리카락 흔들림). 전문가가 손으로 만든 Live2D 모델 수준은 아닙니다.</li>
-      <li><b>감은 눈·벌린 입 그림은 생성하지 않습니다.</b> 눈 감김은 속눈썹이 닫힘 곡선으로 내려오는 방식, 입 열림은 템플릿 입 모양으로 처리하며 결과 보고서에 <code>degraded</code> 로 표시됩니다. 모음(아이우에오) 입 모양은 아직 없습니다.</li>
-      <li>전신 이미지는 얼굴이 작아 해상도가 부족할 수 있습니다. 얼굴 부위는 가능한 한 고해상도 결과를 사용하지만, 상반신·고해상도 입력이 더 좋은 결과를 줍니다.</li>
-      <li>분해가 잘못될 수 있습니다(포니테일이 뒷머리에 합쳐짐, 안경·동물 귀 누락 등). 결과의 레이어 탭에서 실제 분해 결과를 그대로 확인할 수 있습니다.</li>
-      <li>이 서비스는 <b>Live2D Inc.와 무관</b>하며 Cubism SDK를 사용하지 않습니다. 자체 형식으로 내보냅니다.</li>
-    </ul></div>
-  </section>
-</div></main>
+    <div class="content">
+      <section class="hero">
+        <h1>일러스트 한 장으로, 움직이는 2D 퍼펫.</h1>
+        <p>캐릭터 일러스트를 올리면 레이어로 분해하고(가려진 부분까지 복원), 눈 깜빡임·시선·머리 회전·호흡·머리카락 흔들림을 자동으로 리깅해서 <b>브라우저에서 바로 움직여 볼 수 있습니다.</b> 결과 화면에서 레이어를 켜고 끄고, 고치고, 마음에 안 드는 레이어만 다시 생성할 수 있습니다.</p>
+      </section>
+
+      <section id="mine">
+        <div class="section-head">
+          <h2>내 퍼펫 <span class="muted small" id="mineCount"></span></h2>
+          <span class="small muted">로그인 없이 <b>이 브라우저</b>에 목록이 저장됩니다. 퍼펫은 <span id="ret">1년</span> 보관되고, 삭제하면 바로 사라집니다.
+            <button class="btn small" id="mineIO" type="button">다른 기기로 옮기기</button></span>
+        </div>
+        <div id="mineIOBox" class="card" hidden style="margin-bottom:12px">
+          <p class="small muted" style="margin-top:0">이 목록은 서버가 아니라 이 브라우저에만 있습니다. 다른 기기에서 보려면 아래 텍스트를 복사해 그 기기의 같은 칸에 붙여넣고 [가져오기]를 누르세요. 퍼펫 주소를 아는 사람은 누구나 볼 수 있으니 텍스트를 공유하지 마세요.</p>
+          <textarea id="mineText" rows="3" spellcheck="false"></textarea>
+          <p style="margin-bottom:0"><button class="btn small" id="mineCopy" type="button">복사</button> <button class="btn small primary" id="mineImport" type="button">가져오기</button> <span class="small muted" id="mineMsg"></span></p>
+        </div>
+        <div id="mineList" class="pgrid"></div>
+        <div id="mineEmpty" class="empty" hidden>아직 만든 퍼펫이 없습니다. 왼쪽에서 이미지를 올려 보세요.</div>
+      </section>
+
+      <section id="how" style="margin-top:36px">
+        <h2>작동 방식</h2>
+        <div class="steps">
+          <div class="step"><span class="n">1</span><h3>안전 검사</h3><p class="small muted">GPU를 쓰기 전에 성적 콘텐츠·미성년 묘사·사진·다인 이미지를 걸러냅니다.</p></div>
+          <div class="step"><span class="n">2</span><h3>레이어 분해</h3><p class="small muted">머리카락(앞/뒤)·얼굴·눈·눈썹·코·입·귀·목·옷·팔·다리·신발 등을 가려진 부분까지 복원해 RGBA 레이어로 나눕니다. (<a href="https://arxiv.org/abs/2602.03749" rel="noopener">See-through</a> 방법론 기반 자체 구현)</p></div>
+          <div class="step"><span class="n">3</span><h3>자동 리깅</h3><p class="small muted">레이어마다 메시를 만들고 머리 회전·눈·시선·눈썹·입·몸·머리카락의 변형 키폼과 물리를 생성한 뒤 수치 QA로 접힘을 검사합니다.</p></div>
+          <div class="step"><span class="n">4</span><h3>보고, 고치고, 다시 생성</h3><p class="small muted">웹 뷰어에서 움직여 보고, 레이어를 끄고 켜고, 잘못 나뉜 곳을 지우거나 옮기고, 마음에 안 드는 레이어만 다시 생성합니다.</p></div>
+        </div>
+      </section>
+
+      <section id="limits" style="margin-top:36px">
+        <h2>솔직한 한계</h2>
+        <div class="card prose prose-cols"><ul>
+          <li><b>자동 리그의 수준은 "기본 모션"입니다</b>(깜빡임·시선·머리 회전·호흡·머리카락 흔들림). 전문가가 손으로 만든 Live2D 모델 수준은 아닙니다.</li>
+          <li><b>감은 눈·벌린 입 그림은 생성하지 않습니다.</b> 눈 감김은 속눈썹이 닫힘 곡선으로 내려오는 방식, 입 열림은 템플릿 입 모양으로 처리하며 결과 보고서에 <code>degraded</code> 로 표시됩니다. 모음(아이우에오) 입 모양은 아직 없습니다.</li>
+          <li>전신 이미지는 얼굴이 작아 해상도가 부족할 수 있습니다. 상반신·고해상도 입력이 더 좋은 결과를 줍니다.</li>
+          <li>분해가 잘못될 수 있습니다(포니테일이 뒷머리에 합쳐짐, 안경·동물 귀 누락 등). 결과 화면의 레이어 패널에서 실제 분해를 보고 고칠 수 있습니다.</li>
+          <li>이 서비스는 <b>Live2D Inc.와 무관</b>하며 Cubism SDK를 사용하지 않습니다. 자체 형식으로 내보냅니다.</li>
+        </ul></div>
+      </section>
+    </div>
+  </div>
+</main>
 <footer class="site"><div class="wrap">
   <p>img2live — 오픈소스(Apache-2.0) · <a href="https://github.com/CocoRoF/img2live" rel="noopener">소스</a> · <a href="/terms">이용약관·고지</a> · 레이어 분해는 <a href="https://github.com/shitagaki-lab/see-through" rel="noopener">See-through</a>(Apache-2.0)에서 파생된 코드와 OpenRAIL++-M 가중치를 사용합니다. 생성된 결과는 AI 생성물입니다.</p>
 </div></footer>
