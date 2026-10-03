@@ -24,10 +24,11 @@ def _bbox(rgba: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
     return x, y, x + w, y + h
 
 
-def composite(layers: Dict[str, np.ndarray], size: int) -> np.ndarray:
-    """Alpha-composite canvas layers in draw order (straight alpha in/out)."""
+def composite(layers: Dict[str, np.ndarray], size: int, order: Optional[Dict[str, int]] = None) -> np.ndarray:
+    """Alpha-composite canvas layers in draw order (straight alpha in/out); ``order`` overrides the default draw order."""
+    order = {**DRAW_ORDER, **(order or {})}
     acc = np.zeros((size, size, 4), np.float32)
-    for tag in sorted((t for t in layers if t in DRAW_ORDER), key=lambda t: DRAW_ORDER[t]):
+    for tag in sorted((t for t in layers if t in order), key=lambda t: order[t]):
         l = layers[tag].astype(np.float32) / 255.0
         a = l[..., 3:4]
         out_a = a + acc[..., 3:4] * (1 - a)

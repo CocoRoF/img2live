@@ -67,9 +67,10 @@ def _smooth(t):
 class Rig:
     """Collects meshes while the compiler walks the layer set."""
 
-    def __init__(self, layers: List[Layer], spec: RigSpec):
+    def __init__(self, layers: List[Layer], spec: RigSpec, order_overrides: Optional[Dict[str, int]] = None):
         self.layers = layers
         self.spec = spec
+        self.order_overrides = dict(order_overrides or {})
         self.tags = by_tag(layers)
         self.meshes: List[dict] = []
         self.used_params: set = set()
@@ -132,7 +133,7 @@ class Rig:
         h, w = l.rgba.shape[:2]
         m = {
             "id": mid, "tag": tag, "texture": texture or f"tex/{mid}.png", "texSize": [int(w), int(h)],
-            "order": DRAW_ORDER.get(tag, 100),
+            "order": self.order_overrides.get(tag, DRAW_ORDER.get(tag, 100)),
             "positions": [round(float(v), 2) for v in P.reshape(-1)],
             "uvs": [round(float(v), 4) for v in np.stack([pos_px[:, 0] / w, pos_px[:, 1] / h], 1).reshape(-1)],
             "indices": [int(v) for v in tri.reshape(-1)],
@@ -484,10 +485,14 @@ def _motions(rig: Rig) -> dict:
 
 
 def compile_puppet(layers: List[Layer], spec: Optional[RigSpec] = None, out_dir: Optional[str] = None,
-                   source_name: str = "") -> Tuple[dict, dict]:
-    """Compile layers into (puppet, report).  With ``out_dir`` also writes puppet.json and textures."""
+                   source_name: str = "", order_overrides: Optional[Dict[str, int]] = None) -> Tuple[dict, dict]:
+    """Compile layers into (puppet, report).  With ``out_dir`` also writes puppet.json and textures.
+
+    ``order_overrides`` (tag -> draw order) lets the studio move a layer up or down; the rig's own geometry still
+    follows the tags.
+    """
     spec = spec or RigSpec()
-    rig = Rig(layers, spec)
+    rig = Rig(layers, spec, order_overrides)
     rig.build()
 
     params = []

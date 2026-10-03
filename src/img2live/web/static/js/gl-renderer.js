@@ -129,6 +129,7 @@ export class GLRenderer {
     const n = model.meshes.length;
     this.visible = new Uint8Array(n).fill(1);
     this.opacityOverride = new Array(n).fill(null);
+    this.dim = new Float32Array(n).fill(1); // multiplies the opacity (studio "focus" mode fades the unselected layers)
     this.solo = -1;
     this.wireframe = false;
     this.background = "checker";
@@ -386,6 +387,11 @@ export class GLRenderer {
     this.opacityOverride[i] = v == null ? null : Math.max(0, Math.min(1, v));
     this.dirty = true;
   }
+  /** Multiply the drawn opacity of mesh i by v (0..1); 1 = unchanged.  Keeps opacityBind working. */
+  setMeshDim(i, v) {
+    this.dim[i] = Math.max(0, Math.min(1, v));
+    this.dirty = true;
+  }
   setWireframe(on) {
     this.wireframe = !!on;
     this.dirty = true;
@@ -623,7 +629,7 @@ export class GLRenderer {
       if (!g.tex) continue; // still loading
       const m = model.meshes[i];
       const ov = this.opacityOverride[i];
-      const opacity = ov !== null ? ov : model.opacityOf(i, values);
+      const opacity = (ov !== null ? ov : model.opacityOf(i, values)) * this.dim[i];
       if (opacity <= 0.001) continue;
 
       let masked = false;

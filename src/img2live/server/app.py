@@ -32,6 +32,7 @@ from ..db import DB, new_job_id
 from ..rig.spec import parse_prompt
 from ..safety.gate import GateConfig, SafetyGate, sha256_bytes
 from ..thumbs import make_thumb
+from .studio_routes import register as register_studio
 
 log = logging.getLogger("img2live.api")
 STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "static"
@@ -451,6 +452,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         return FileResponse(target, media_type=ctype, headers={
             "Cache-Control": "private, max-age=600", "Content-Disposition": f'{disp}; filename="{target.name}"'})
 
+    register_studio(app, cfg, db)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     return app
 
