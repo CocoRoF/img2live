@@ -17,7 +17,7 @@
  *   });
  *   insp.setState(state)  insp.setSelected(tag, { openTab })  insp.showTab(name)  insp.setDegraded(bool)
  */
-import { el, icon, esc, fmtBytes, fmtInt, agoText, labelOf, groupOf, GROUP_LABELS, downloadBlob, stamp, uid } from "./studio-util.js";
+import { el, icon, esc, fmtBytes, fmtInt, agoText, labelOf, groupOf, GROUP_LABELS, downloadBlob, stamp, uid, capKeyKo, capTextKo } from "./studio-util.js";
 import { reportHtml } from "./studio-report.js";
 
 const TABS = [["motion", "움직임"], ["layer", "레이어"], ["report", "보고서"], ["files", "파일"]];
@@ -249,8 +249,8 @@ export function createInspector(container, deps) {
       const c = classifyCapability(value);
       if (c.level in counts) counts[c.level]++;
       list.append(el("li", { class: "in-capi", "data-level": c.level },
-        el("span", { class: "in-capk", text: key.replace(/_/g, " ") }),
-        el("span", { class: "in-capv" }, c.label ? el("span", { class: `pill ${c.level === "ok" ? "ok" : c.level === "degraded" ? "warn" : c.level === "unavailable" ? "bad" : ""}`, text: c.label }) : null, c.detail ? ` ${c.detail}` : "")));
+        el("span", { class: "in-capk", text: capKeyKo(key) }),
+        el("span", { class: "in-capv" }, c.label ? el("span", { class: `pill ${c.level === "ok" ? "ok" : c.level === "degraded" ? "warn" : c.level === "unavailable" ? "bad" : ""}`, text: c.label }) : null, c.detail ? ` ${capTextKo(c.detail)}` : "")));
     }
     const bits = [];
     if (counts.unavailable) bits.push(`불가 ${counts.unavailable}`);

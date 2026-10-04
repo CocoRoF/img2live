@@ -141,3 +141,35 @@ export const stamp = () => new Date().toISOString().replace(/[-:]/g, "").replace
 
 let uidCounter = 0;
 export const uid = (prefix = "st") => `${prefix}${++uidCounter}`;
+
+// ------------------------------------------------------------------------------------------------ capability wording
+// The compiler writes its capability report in English; the studio shows it in Korean (unknown text is shown as it is).
+const CAP_KEYS = {
+  layers: "레이어", head_yaw_pitch: "머리 좌우·상하", head_roll: "머리 기울임", blink: "눈 깜빡임", gaze: "시선", brows: "눈썹",
+  mouth_open: "입 벌림", lipsync: "립싱크", hair_physics: "머리카락 물리", body: "몸", tail: "꼬리",
+  mouth_shapes_aiueo: "모음 입 모양", closed_eye_art: "감은 눈 그림",
+};
+const CAP_TEXT = [
+  [/^no face layer, head box estimated$/, "얼굴 레이어가 없어 머리 범위를 추정했습니다"],
+  [/^no closed-eye art; lashes close onto a curve, eye white\/iris collapse$/, "감은 눈 그림이 없어 속눈썹이 닫힘 곡선으로 내려오고 눈 흰자·홍채가 접힙니다"],
+  [/^eye white collapses, no lash line$/, "눈 흰자가 접히고 속눈썹 선은 없습니다"],
+  [/^eyes not separable, both blink together$/, "양쪽 눈을 나눌 수 없어 함께 깜빡입니다"],
+  [/^no eye layers found$/, "눈 레이어가 없습니다"],
+  [/^no iris\/eye-white pair$/, "홍채와 눈 흰자 쌍이 없습니다"],
+  [/^no eyebrow layer$/, "눈썹 레이어가 없습니다"],
+  [/^template mouth overlay \(no generated open-mouth art\)$/, "벌린 입 그림이 없어 템플릿 입 모양을 씁니다"],
+  [/^no mouth layer$/, "입 레이어가 없습니다"],
+  [/^open\/close only \(no vowel shapes\)$/, "열고 닫기만 되고 모음 모양은 없습니다"],
+  [/^no hair layer$/, "머리카락 레이어가 없습니다"],
+  [/^no body layers$/, "몸 레이어가 없습니다"],
+  [/^no generated vowel shapes yet$/, "모음 모양은 아직 만들지 않습니다"],
+  [/^not generated yet$/, "감은 눈 그림은 아직 만들지 않습니다"],
+  [/^absent$/, "없음"], [/^off by prompt$/, "프롬프트로 껐습니다"],
+  [/^(\d+) layers$/, "$1개"],
+];
+export const capKeyKo = (key) => CAP_KEYS[key] || String(key).replace(/_/g, " ");
+export function capTextKo(text) {
+  const t = String(text ?? "").trim();
+  for (const [re, ko] of CAP_TEXT) if (re.test(t)) return t.replace(re, ko);
+  return t;
+}

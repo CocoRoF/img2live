@@ -455,6 +455,9 @@ def test_inspector_tabs_and_motion_controls(studio):
     assert s.js("() => window.__studio.stage.params.get('ParamAngleX')") == 0
     # capability card
     assert "대체 방식" in page.inner_text(".in-cap") and "불가" in page.inner_text(".in-cap")
+    cap = page.inner_text(".in-cap")                                                  # Korean wording, no compiler English
+    assert "눈 깜빡임" in cap and "감은 눈 그림이 없어" in cap and "머리 좌우·상하" in cap, cap
+    assert "no closed-eye" not in cap and "Head Yaw" not in cap and "layers" not in cap.lower().replace("레이어", ""), cap
     # PNG snapshot downloads a real PNG
     with page.expect_download() as dl:
         page.click("text=PNG 저장")
@@ -464,6 +467,7 @@ def test_inspector_tabs_and_motion_controls(studio):
     page.click(".in-tabs [data-tab=report]")
     page.wait_for_selector(".in-panel:not([hidden]) .in-sec")
     txt = page.inner_text("#inspector")
+    assert "no closed-eye art" not in txt and "Head Yaw" not in txt and "감은 눈 그림이 없어" in txt
     assert "기능별 상태" in txt and "수치 QA" in txt and "프롬프트 해석" in txt and "충실도" in txt and "통과" in txt
     page.click(".in-tabs [data-tab=files]")
     assert page.locator('.in-dl a[href$="puppet.zip"]').count() == 1 and page.locator(".in-files tbody tr").count() > 10

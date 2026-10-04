@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // "보고서" tab: the job's report.json as compact sections (ported from the old result page, laid out for a narrow column).
-import { esc, labelOf } from "./studio-util.js";
+import { esc, labelOf, capKeyKo, capTextKo } from "./studio-util.js";
 
 function statusPill(s) {
   const text = String(s);
   const k = text.startsWith("ok") ? "ok" : text.startsWith("degraded") ? "warn" : text.startsWith("unavailable") ? "bad" : "";
   const detail = text.includes(":") ? text.split(":").slice(1).join(":").trim() : "";
-  return `<span class="pill ${k}">${esc(text.split(":")[0])}</span>${detail ? ` <span class="small muted">${esc(detail)}</span>` : ""}`;
+  const head = text.split(":")[0];
+  const label = { ok: "정상", degraded: "대체 방식", unavailable: "불가" }[head.trim()] || capTextKo(head);
+  return `<span class="pill ${k}">${esc(label)}</span>${detail ? ` <span class="small muted">${esc(capTextKo(detail))}</span>` : ""}`;
 }
 
 const pct = (v, d = 1) => (Number.isFinite(v) ? `${(v * 100).toFixed(d)}%` : "-");
@@ -15,9 +17,9 @@ const sec = (title, body, note = "") => `<section class="in-sec"><h3>${title}</h
 /** @param {object} r report.json  @param {object} job public job json */
 export function reportHtml(r, job = {}) {
   const parts = [];
-  const cap = Object.entries(r.capability || {}).map(([k, v]) => `<tr><td>${esc(k.replace(/_/g, " "))}</td><td>${statusPill(v)}</td></tr>`).join("");
+  const cap = Object.entries(r.capability || {}).map(([k, v]) => `<tr><td>${esc(capKeyKo(k))}</td><td>${statusPill(v)}</td></tr>`).join("");
   parts.push(sec("기능별 상태", `<div class="scroll-x"><table class="t"><tbody>${cap || '<tr><td class="muted">기록 없음</td></tr>'}</tbody></table></div>`,
-    "이 퍼펫이 무엇을 할 수 있고 무엇을 못 하는지 그대로 적습니다. <b>degraded</b> = 동작하지만 대체 방식, <b>unavailable</b> = 불가."));
+    "이 퍼펫이 무엇을 할 수 있고 무엇을 못 하는지 그대로 적습니다. <b>대체 방식</b> = 동작하지만 다른 방법으로 처리, <b>불가</b> = 할 수 없음."));
 
   const spec = r.rigSpec || {};
   const notes = (spec.notes || []).map((n) => `<li>${esc(n)}</li>`).join("");
