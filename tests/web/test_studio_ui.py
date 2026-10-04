@@ -1179,6 +1179,7 @@ def _record(s, seconds=1.4):
     assert page.locator(".st-rec-time").is_visible()
     page.locator('input[data-param="ParamAngleX"]').focus()
     page.keyboard.press("Home"); time.sleep(seconds / 2); page.keyboard.press("End"); time.sleep(seconds / 2)   # something moves
+    until(lambda: s.js("() => window.__studio.stage.recordedBytes") > 2000, "the encoder to hand over frames", 20)
     with page.expect_download() as dl:
         page.click('[data-tool="rec"]')
     return dl.value
@@ -1211,7 +1212,8 @@ def test_recording_the_screen_background_has_no_alpha_and_the_inspector_controls
     until(lambda: s.js("() => window.__studio.stage.recording") is True, "recording to start")
     assert page.is_disabled('[data-fk="rec-bg"]') and "녹화 중지" in page.inner_text('[data-fk="record"]')
     assert page.locator(".is-recording").count() == 1 and page.locator(".rec-alpha").count() == 0    # no checkerboard: the screen is recorded
-    time.sleep(1.0)
+    until(lambda: s.js("() => window.__studio.stage.recordedBytes") > 2000, "the encoder to hand over frames", 20)   # a busy machine may need a while
+    time.sleep(0.5)
     with page.expect_download() as dl:
         page.click('[data-tool="rec"]')                                                 # ... stop from the toolbar: the same recording
     info = _probe(dl.value.path())
@@ -1226,7 +1228,7 @@ def test_a_puppet_reload_during_a_recording_still_saves_the_take(studio):
     page, m = s.page, s.mock
     page.click('[data-tool="rec"]')
     until(lambda: s.js("() => window.__studio.stage.recording") is True, "recording to start")
-    time.sleep(0.8)
+    until(lambda: s.js("() => window.__studio.stage.recordedBytes") > 2000, "the encoder to hand over frames", 20)
     m.layer("nose")["enabled"] = False
     with page.expect_download() as dl:                                                  # the canvas is replaced: the take is finished and saved
         s.js(f"() => window.__studio.applyState({json.dumps(_snapshot(m, 7))})")

@@ -776,6 +776,8 @@ export function createStage(container, opts = {}) {
     get recordAlphaSupported() { return recMime().includes("vp9"); },
     get recording() { return !!rec; },
     get recordingMs() { return rec ? performance.now() - rec.t0 : 0; },
+    /** bytes the recorder has handed over so far (0 until the first frames are encoded) */
+    get recordedBytes() { return rec ? rec.chunks.reduce((n, c) => n + c.size, 0) : 0; },
     startRecording,
     stopRecording,
     snapshot: () => (inst ? inst.renderer.snapshotBlob() : Promise.reject(new Error("퍼펫이 아직 준비되지 않았습니다"))),
