@@ -291,5 +291,6 @@ body.is-studio main.app { flex: 1 1 auto; min-height: 0; display: flex; flex-dir
 /* a transparent take: the canvas is cleared to alpha, so show the checkerboard behind it */
 .rec-alpha { background-color: var(--surface-2); background-image: linear-gradient(45deg, rgba(128,128,128,.22) 25%, transparent 25%), linear-gradient(-45deg, rgba(128,128,128,.22) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(128,128,128,.22) 75%), linear-gradient(-45deg, transparent 75%, rgba(128,128,128,.22) 75%); background-size: 20px 20px; background-position: 0 0, 0 10px, 10px -10px, -10px 0; }
 .is-recording::after { content: "● REC"; position: absolute; left: 14px; bottom: 14px; z-index: 8; padding: 3px 9px; border-radius: 999px; background: #e5484d; color: #fff; font-size: 12px; font-weight: 800; letter-spacing: .04em; pointer-events: none; }
-.in-save .in-row.split { gap: 8px 10px; }
+.in-save .in-row.split { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 10px; align-items: center; }
+.in-save .in-sel { width: 100%; }
 .in-sel { height: 32px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--surface); color: var(--text); font: inherit; font-size: .85rem; width: auto; }
