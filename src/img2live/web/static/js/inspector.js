@@ -130,11 +130,43 @@ export function createInspector(container, deps) {
   btnPng.addEventListener("click", async () => {
     try { downloadBlob(await stage.snapshot(), `img2live-${stamp()}.png`); } catch (e) { notify(`스냅샷에 실패했습니다: ${e.message || e}`, "bad"); }
   });
+  // ---- saving: PNG stills and the WebM recording (the toolbar's record button does the same)
+  const btnPngT = el("button", { type: "button", class: "btn small", "data-fk": "snapshot-alpha", title: "배경 없이 캐릭터만 PNG로 저장합니다" }, icon("camera", 14), " 투명 PNG");
+  btnPngT.addEventListener("click", async () => {
+    try { downloadBlob(await stage.renderer.snapshotBlob({ transparent: true }), `img2live-${stamp()}-alpha.png`); } catch (e) { notify(`스냅샷에 실패했습니다: ${e.message || e}`, "bad"); }
+  });
+  const btnRec = el("button", { type: "button", class: "btn small primary in-rec", "data-fk": "record" });
+  btnRec.addEventListener("click", () => window.dispatchEvent(new Event("i2l-record-toggle")));
+  const recBg = el("select", { "aria-label": "녹화 배경", class: "in-sel", "data-fk": "rec-bg" },
+    el("option", { value: "alpha", text: "투명 (알파 채널, VP9)" }), el("option", { value: "screen", text: "지금 보이는 배경 그대로" }));
+  const recFps = el("select", { "aria-label": "프레임 속도", class: "in-sel", "data-fk": "rec-fps" },
+    el("option", { value: "60", text: "60 fps" }), el("option", { value: "30", text: "30 fps" }));
+  recBg.addEventListener("change", () => { stage.recordOptions.alpha = recBg.value === "alpha"; });
+  recFps.addEventListener("change", () => { stage.recordOptions.fps = Number(recFps.value); });
+  const recHelp = el("p", { class: "small muted" });
+  const recSync = () => {
+    const on = stage.recording, can = stage.canRecord();
+    btnRec.replaceChildren(icon(on ? "stop" : "record", 14), on ? " 녹화 중지하고 저장" : " WebM 녹화 시작");
+    btnRec.disabled = !can;
+    recBg.disabled = recFps.disabled = on || !can;
+    if (!stage.recordAlphaSupported) { recBg.value = "screen"; stage.recordOptions.alpha = false; recBg.querySelector('option[value="alpha"]').disabled = true; }
+    recHelp.textContent = !can ? "이 브라우저는 캔버스 녹화를 지원하지 않습니다."
+      : on ? "녹화 중입니다. 슬라이더·대기 동작·마우스 따라보기로 움직임을 만든 뒤 중지하면 .webm 파일이 저장됩니다."
+      : "움직이는 모습을 .webm 영상으로 저장합니다. 투명 배경 영상은 알파 채널이 있는 VP9라 Chrome·Edge·OBS 브라우저 소스에서 재생됩니다. 다른 프로그램에서 쓰려면 배경을 초록으로 바꾸고 '지금 보이는 배경 그대로'로 녹화하세요.";
+  };
+  window.addEventListener("i2l-record-state", recSync);
+  stage.on("record", recSync);
+  recSync();
   const paramsBox = el("div", { class: "in-params" });
   const capBox = el("div", { class: "in-cap" });
   motion.append(
     el("section", { class: "in-sec" }, el("h3", { text: "움직임" }), swGrid),
-    el("section", { class: "in-sec" }, el("h3", { text: "배경" }), bgBox, el("div", { class: "in-row" }, btnReset, btnPng)),
+    el("section", { class: "in-sec" }, el("h3", { text: "배경" }), bgBox, el("div", { class: "in-row" }, btnReset)),
+    el("section", { class: "in-sec in-save" }, el("h3", { text: "저장·녹화" }),
+      el("div", { class: "in-row" }, btnPng, btnPngT),
+      el("div", { class: "in-row" }, btnRec),
+      el("div", { class: "in-row split" }, el("label", { class: "small muted", text: "배경" }), recBg, el("label", { class: "small muted", text: "속도" }), recFps),
+      recHelp),
     el("section", { class: "in-sec" }, el("h3", { text: "매개변수" }), paramsBox),
     el("section", { class: "in-sec" }, el("h3", { text: "기능 상태" }), capBox));
 

@@ -10,6 +10,7 @@
  * 2D overlay canvas that draws the selection outline from the mesh boundary edges (it follows the deformation).
  * Layers = puppet meshes grouped by their `tag` (eyelash_l / eyelash_r share "eyelash").
  */
+import { fixWebmDuration } from "./webm-fix.js";
 import { PuppetModel, PuppetController } from "./puppet-runtime.js";
 import { GLRenderer, WebGL2Unavailable, BACKGROUNDS } from "./gl-renderer.js";
 import { el, emitter } from "./studio-util.js";
@@ -210,6 +211,55 @@ export function createStage(container, opts = {}) {
   let camKey = "";
   let hoverReq = null;
   let urlNow = opts.puppetUrl || "";
+
+  // ---- WebM recording (the live canvas through MediaRecorder; VP9 keeps the alpha channel)
+  const recOptions = { alpha: true, fps: 60, bitrate: 8_000_000 };
+  let rec = null; // {recorder, stream, chunks, t0, mime, alpha}
+  const recMime = () => ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"].find((t) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t)) || "";
+  const canRecord = () => typeof MediaRecorder !== "undefined" && !!document.createElement("canvas").captureStream && !!recMime();
+  function startRecording(o = {}) {
+    if (rec) return;
+    if (!inst) throw new Error("퍼펫이 아직 준비되지 않았습니다");
+    if (!canRecord()) throw new Error("이 브라우저는 캔버스 녹화를 지원하지 않습니다 (MediaRecorder 없음)");
+    const alpha = (o.alpha ?? recOptions.alpha) && recMime().includes("vp9");   // only VP9 carries alpha
+    const fps = Math.max(10, Math.min(60, Number(o.fps ?? recOptions.fps) || 60));
+    const mime = recMime();
+    const stream = inst.canvas.captureStream(fps);
+    const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: Number(o.bitrate ?? recOptions.bitrate) });
+    const chunks = [];
+    recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec = { recorder, stream, chunks, t0: performance.now(), mime, alpha };
+    recorder.start(250);
+    container.classList.toggle("rec-alpha", alpha);   // the canvas turns transparent: show a checkerboard behind it
+    container.classList.add("is-recording");
+    inst.renderer.dirty = true;
+    if (!raf && !paused) { last = performance.now(); raf = requestAnimationFrame(frame); }
+    bus.emit("record", true, { alpha, fps });
+  }
+  function stopRecording() {
+    const r = rec;
+    if (!r) return Promise.reject(new Error("녹화 중이 아닙니다"));
+    rec = null;
+    container.classList.remove("rec-alpha", "is-recording");
+    if (inst) inst.renderer.dirty = true;
+    return new Promise((resolve, reject) => {
+      r.recorder.onerror = (e) => reject(e.error || new Error("녹화 오류"));
+      const ms = performance.now() - r.t0;
+      r.recorder.onstop = async () => {
+        try { r.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* already stopped */ }
+        let blob = new Blob(r.chunks, { type: r.recorder.mimeType || r.mime || "video/webm" });
+        blob = await fixWebmDuration(blob, ms);    // the browser's file has no length: write it in
+        bus.emit("record", false, { seconds: ms / 1000, bytes: blob.size });
+        resolve(blob);
+      };
+      try { if (r.recorder.state !== "inactive") r.recorder.stop(); else r.recorder.onstop(); } catch (e) { reject(e); }
+    });
+  }
+  /** The canvas is about to be replaced (a reload) or the stage disposed: finish the take and hand it over, never lose it. */
+  function finishRecordingEarly(reason) {
+    if (!rec) return;
+    stopRecording().then((blob) => bus.emit("recorded", blob, { auto: true, reason })).catch((e) => console.warn(e));
+  }
   let firstReady = false;
   let readyResolve, readyReject;
   const readyPromise = new Promise((res, rej) => { readyResolve = res; readyReject = rej; });
@@ -317,7 +367,7 @@ export function createStage(container, opts = {}) {
     } else r.setCamera(view.camera === "head" ? "head" : "fit");
     next.ctrl.step(0);
     r.render(next.ctrl.values);
-    if (prev) container.replaceChild(next.canvas, prev.canvas);
+    if (prev) { finishRecordingEarly("reload"); container.replaceChild(next.canvas, prev.canvas); }
     else container.insertBefore(next.canvas, overlay);
     inst = next;
     if (prev) destroyInst(prev);
@@ -535,7 +585,7 @@ export function createStage(container, opts = {}) {
     for (let n = 0; n < vals.length; n++) {
       if (vals[n] !== i.rendered[n]) { i.rendered[n] = vals[n]; changed = true; }
     }
-    if (changed) r.render(vals);
+    if (changed || rec) r.render(vals, rec && rec.alpha ? { transparent: true } : undefined);   // a recording needs a frame every tick
 
     if (hoverReq) { // one hit test per frame at most
       const q = hoverReq;
@@ -719,6 +769,15 @@ export function createStage(container, opts = {}) {
     resetCamera() { if (inst) { inst.renderer.resetCamera(); bus.emit("camera", cameraInfo()); } },
     get camera() { return cameraInfo(); },
     /** PNG of the current view (transparent on the checkerboard). */
+    /** WebM recording of the live canvas.  startRecording({alpha, fps, bitrate}) / stopRecording() -> Blob;
+     *  events: 'record'(on, info) and 'recorded'(blob, {auto, reason}) when a reload/dispose ended the take. */
+    recordOptions: recOptions,
+    canRecord,
+    get recordAlphaSupported() { return recMime().includes("vp9"); },
+    get recording() { return !!rec; },
+    get recordingMs() { return rec ? performance.now() - rec.t0 : 0; },
+    startRecording,
+    stopRecording,
     snapshot: () => (inst ? inst.renderer.snapshotBlob() : Promise.reject(new Error("퍼펫이 아직 준비되지 않았습니다"))),
     pause() { paused = true; if (raf) { cancelAnimationFrame(raf); raf = 0; } },
     resume() {
@@ -739,6 +798,7 @@ export function createStage(container, opts = {}) {
     get canvas() { return inst?.canvas; },
     dispose() {
       if (disposed) return;
+      finishRecordingEarly("dispose");
       disposed = true;
       loadSeq++;
       if (raf) cancelAnimationFrame(raf);

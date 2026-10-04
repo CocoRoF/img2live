@@ -1138,3 +1138,109 @@ def test_screenshots_narrow_status_and_degraded(studio, site):
     until(lambda: st.page.locator("#srcCard").is_visible() and st.js("() => document.querySelector('#srcImg').naturalWidth") > 0, "the source image")
     st.page.screenshot(path=str(SHOTS / "status_running_1920x1080_light.png"))
     assert (SHOTS / "studio_800x900_light_drawer.png").exists()
+
+
+# ------------------------------------------------------------------------------------------------ WebM recording
+def _probe(path: str) -> dict:
+    """ffprobe the take: container, codec, duration and the alpha flag."""
+    import shutil
+    import subprocess
+
+    if not shutil.which("ffprobe"):
+        pytest.skip("ffprobe is not installed")
+    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                          "stream=codec_name,width,height:stream_tags=alpha_mode:format=duration", "-of", "json", path],
+                         capture_output=True, text=True, check=True).stdout
+    j = json.loads(out)
+    st = (j.get("streams") or [{}])[0]
+    # the alpha_mode tag only says the stream HAS an alpha plane (Chrome sets it for any canvas); decode a frame to see the pixels
+    import tempfile
+    import numpy as np
+    from PIL import Image
+    png = tempfile.mktemp(suffix=".png")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-c:v", "libvpx-vp9", "-i", path, "-frames:v", "1", "-pix_fmt", "rgba", png], check=True)
+    px = np.asarray(Image.open(png).convert("RGBA"))
+    return {"codec": st.get("codec_name"), "w": st.get("width"), "h": st.get("height"),
+            "alpha_plane": (st.get("tags") or {}).get("alpha_mode") == "1",
+            "transparent": float((px[..., 3] == 0).mean()), "green": float(((px[..., 1] > px[..., 0] + 40) & (px[..., 1] > px[..., 2] + 40) & (px[..., 3] == 255)).mean()),
+            "duration": float((j.get("format") or {}).get("duration") or 0)}
+
+
+def _record(s, seconds=1.4):
+    """Press the toolbar's record button, let the puppet move for a moment, press it again and return the downloaded file."""
+    page = s.page
+    page.click('[data-tool="rec"]')
+    until(lambda: s.js("() => window.__studio.stage.recording") is True, "recording to start")
+    assert page.get_attribute('[data-tool="rec"]', "aria-pressed") == "true"
+    assert page.locator(".st-rec-time").is_visible()
+    page.locator('input[data-param="ParamAngleX"]').focus()
+    page.keyboard.press("Home"); time.sleep(seconds / 2); page.keyboard.press("End"); time.sleep(seconds / 2)   # something moves
+    with page.expect_download() as dl:
+        page.click('[data-tool="rec"]')
+    return dl.value
+
+
+def test_recording_saves_a_transparent_webm(studio):
+    s = studio().open("idle=1&blink=1&physics=1")
+    page = s.page
+    d = _record(s)
+    assert d.suggested_filename.startswith("img2live-") and d.suggested_filename.endswith(".webm")
+    data = Path(d.path()).read_bytes()
+    assert data[:4] == bytes.fromhex("1a45dfa3") and len(data) > 5000                    # a real WebM (EBML header), not an empty blob
+    info = _probe(d.path())
+    assert info["codec"] == "vp9" and info["alpha_plane"] and info["duration"] >= 0.8, info      # VP9, and the length is written in
+    assert info["transparent"] > 0.3, info                                               # the background really is see-through
+    until(lambda: s.js("() => window.__studio.stage.recording") is False, "recording to stop")
+    assert page.get_attribute('[data-tool="rec"]', "aria-pressed") == "false" and page.locator(".st-rec-time").is_hidden()
+    assert "녹화를 저장했습니다" in page.inner_text("#toasts")
+    assert s.errors == []
+
+
+def test_recording_the_screen_background_has_no_alpha_and_the_inspector_controls_it(studio):
+    s = studio().open("idle=1&physics=1")
+    page = s.page
+    page.click('.in-bgbtn[data-bg="green"]')
+    assert "WebM 녹화 시작" in page.inner_text('[data-fk="record"]') and "알파" in page.inner_text(".in-save")
+    page.select_option('[data-fk="rec-bg"]', "screen"); page.select_option('[data-fk="rec-fps"]', "30")
+    assert s.js("() => window.__studio.stage.recordOptions") == {"alpha": False, "fps": 30, "bitrate": 8000000}
+    page.click('[data-fk="record"]')                                                    # start from the inspector ...
+    until(lambda: s.js("() => window.__studio.stage.recording") is True, "recording to start")
+    assert page.is_disabled('[data-fk="rec-bg"]') and "녹화 중지" in page.inner_text('[data-fk="record"]')
+    assert page.locator(".is-recording").count() == 1 and page.locator(".rec-alpha").count() == 0    # no checkerboard: the screen is recorded
+    time.sleep(1.0)
+    with page.expect_download() as dl:
+        page.click('[data-tool="rec"]')                                                 # ... stop from the toolbar: the same recording
+    info = _probe(dl.value.path())
+    assert info["codec"] in ("vp9", "vp8") and info["duration"] >= 0.6, info
+    assert info["transparent"] == 0.0 and info["green"] > 0.3, info                      # the green screen background is in the picture, nothing is see-through
+    assert "WebM 녹화 시작" in page.inner_text('[data-fk="record"]') and not page.is_disabled('[data-fk="rec-bg"]')
+    assert s.errors == []
+
+
+def test_a_puppet_reload_during_a_recording_still_saves_the_take(studio):
+    s = studio().open("idle=1&physics=1")
+    page, m = s.page, s.mock
+    page.click('[data-tool="rec"]')
+    until(lambda: s.js("() => window.__studio.stage.recording") is True, "recording to start")
+    time.sleep(0.8)
+    m.layer("nose")["enabled"] = False
+    with page.expect_download() as dl:                                                  # the canvas is replaced: the take is finished and saved
+        s.js(f"() => window.__studio.applyState({json.dumps(_snapshot(m, 7))})")
+    assert dl.value.suggested_filename.endswith(".webm") and Path(dl.value.path()).stat().st_size > 2000
+    until(lambda: s.js("() => window.__studio.stage.recording") is False, "recording state to clear")
+    until(lambda: "퍼펫이 바뀌어 녹화를 마치고 저장했습니다" in page.inner_text("#toasts"), "the explanation")
+    assert page.get_attribute('[data-tool="rec"]', "aria-pressed") == "false"
+    assert s.js("() => document.querySelectorAll('canvas.stage-canvas').length") == 1
+    assert s.errors == []
+
+
+def test_recording_is_disabled_where_the_browser_cannot_do_it(browser, site):
+    s = Studio(browser, site)
+    try:
+        s.page.add_init_script("delete window.MediaRecorder;")
+        s.open(QUIET)
+        assert s.page.is_disabled('[data-tool="rec"]') and s.page.is_disabled('[data-fk="record"]')
+        assert "지원하지 않습니다" in s.page.inner_text(".in-save")
+        assert s.errors == []
+    finally:
+        s.close()

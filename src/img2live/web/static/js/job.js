@@ -7,7 +7,7 @@
 // Test switches (harmless in production): ?idle=0&blink=0&physics=0&follow=0|1&bg=checker|white|dark|green&camera=fit|head&wire=1&seed=N,
 // and ?test=1 exposes window.__studio for the browser tests.
 import { mine } from "./mine.js";
-import { el, icon, store, labelOf, groupOf, downloadBlob, stamp } from "./studio-util.js";
+import { el, icon, store, labelOf, groupOf, downloadBlob, stamp, fmtClock } from "./studio-util.js";
 
 const $ = (id) => document.getElementById(id);
 const jobId = location.pathname.split("/").filter(Boolean).pop();
@@ -400,8 +400,45 @@ async function startStudio(job) {
         try { downloadBlob(await stage.snapshot(), `img2live-${stamp()}.png`); }
         catch (e) { toast(`스냅샷에 실패했습니다: ${e.message || e}`, "bad"); }
       }),
+      tool("rec", "record", "WebM으로 녹화 시작", () => recToggle(), { "aria-pressed": "false" }),
       el("span", { class: "st-sep", "aria-hidden": "true" }),
       tool("right", "panelRight", "검사기 열기·닫기", () => togglePanel("right"), { "aria-controls": "stRight", "aria-expanded": "true" }));
+    // ---- WebM recording: start/stop here or in the inspector; the file is saved when the take ends
+    const recTime = el("span", { class: "st-rec-time", hidden: true, "aria-hidden": "true" });
+    toolbarEls.rec.append(recTime);
+    let recTimer = 0;
+    const saveTake = (blob, note) => {
+      if (!blob || !blob.size) { toast("녹화된 내용이 없습니다.", "warn"); return; }
+      const ext = (blob.type || "").includes("webm") ? "webm" : "mp4";
+      downloadBlob(blob, `img2live-${stamp()}.${ext}`);
+      toast(`${note || "녹화를 저장했습니다."} (${(blob.size / 1048576).toFixed(1)} MB)`, "ok");
+    };
+    async function recToggle() {
+      if (!stage.recording) {
+        try { stage.startRecording(); }
+        catch (e) { toast(`녹화를 시작하지 못했습니다: ${e.message || e}`, "bad"); }
+        return;
+      }
+      try { saveTake(await stage.stopRecording()); }
+      catch (e) { toast(`녹화를 저장하지 못했습니다: ${e.message || e}`, "bad"); }
+    }
+    window.addEventListener("i2l-record-toggle", recToggle);   // the inspector's button
+    const recSync = () => {
+      const on = stage.recording;
+      toolbarEls.rec.setAttribute("aria-pressed", String(on));
+      toolbarEls.rec.classList.toggle("is-rec", on);
+      const label = on ? "녹화 중지하고 WebM 저장" : "WebM으로 녹화 시작";
+      toolbarEls.rec.setAttribute("aria-label", label); toolbarEls.rec.title = label;
+      toolbarEls.rec.replaceChildren(icon(on ? "stop" : "record", 18), recTime);
+      recTime.hidden = !on;
+      clearInterval(recTimer);
+      if (on) { const tick = () => { recTime.textContent = fmtClock(stage.recordingMs); }; tick(); recTimer = setInterval(tick, 250); }
+      window.dispatchEvent(new CustomEvent("i2l-record-state", { detail: { on } }));
+    };
+    toolbarEls.rec.disabled = !stage.canRecord();
+    if (!stage.canRecord()) toolbarEls.rec.title = "이 브라우저는 캔버스 녹화를 지원하지 않습니다";
+    stage.on("record", recSync);
+    stage.on("recorded", (blob, info) => saveTake(blob, info && info.reason === "reload" ? "퍼펫이 바뀌어 녹화를 마치고 저장했습니다." : "녹화를 저장했습니다."));
     const sync = () => {
       for (const mode of stage.backgrounds) toolbarEls["bg-" + mode].setAttribute("aria-checked", String(stage.background === mode));
       toolbarEls.wire.setAttribute("aria-pressed", String(stage.option("wireframe")));
